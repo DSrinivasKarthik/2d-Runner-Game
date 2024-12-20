@@ -1,28 +1,33 @@
 import pygame
 import random
+import json
 
 # Initialize Pygame
 pygame.init()
+
+# Load configuration from JSON file
+with open('config.json') as config_file:
+    config = json.load(config_file)
 
 # Constants
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 FPS = 60
 
-# Colors
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-GREEN = (0, 255, 0)
+# Colors from config
+BACKGROUND_COLOR = config['background']['color']
+PLAYER_COLOR = config['player']['color']
+PLATFORM_COLOR = config['platforms']['color']
+OBSTACLE_COLOR = config['obstacles']['color']
 
-# Player settings
-PLAYER_WIDTH = 50
-PLAYER_HEIGHT = 60
-GRAVITY = 1
-JUMP_STRENGTH = -15
+# Player settings from config
+PLAYER_WIDTH = config['player']['width']
+PLAYER_HEIGHT = config['player']['height']
+JUMP_STRENGTH = config['player']['jump_strength']
 
-# Platform settings
-PLATFORM_WIDTH = 100
-PLATFORM_HEIGHT = 20
+# Platform settings from config
+PLATFORM_WIDTH = config['platforms']['width']
+PLATFORM_HEIGHT = config['platforms']['height']
 
 # Create the screen
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -35,7 +40,7 @@ class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
         self.image = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT))
-        self.image.fill(GREEN)
+        self.image.fill(PLAYER_COLOR)
         self.rect = self.image.get_rect()
         self.rect.x = 50
         self.rect.y = SCREEN_HEIGHT - PLAYER_HEIGHT - PLATFORM_HEIGHT
@@ -46,7 +51,7 @@ class Player(pygame.sprite.Sprite):
     def update(self):
         # Apply gravity
         if not self.on_ground:
-            self.change_y += GRAVITY
+            self.change_y += 1
         
         # Move vertically
         self.rect.y += self.change_y
@@ -85,7 +90,7 @@ class Platform(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
         self.image = pygame.Surface((PLATFORM_WIDTH, PLATFORM_HEIGHT))
-        self.image.fill(BLACK)
+        self.image.fill(PLATFORM_COLOR)
         self.rect = self.image.get_rect()
         self.rect.x = x
         self.rect.y = y
@@ -100,7 +105,7 @@ def main():
     player = Player()
     all_sprites.add(player)
 
-    # Create platforms
+    # Create platforms randomly positioned in the screen.
     for i in range(5):
         x_pos = random.randint(0, SCREEN_WIDTH - PLATFORM_WIDTH)
         y_pos = random.randint(SCREEN_HEIGHT // 2, SCREEN_HEIGHT - PLATFORM_HEIGHT)
@@ -137,8 +142,8 @@ def main():
                 player.on_ground = True 
                 player.change_y = 0 
 
-        # Fill the screen with white color and draw all sprites
-        screen.fill(WHITE)
+        # Fill the screen with background color and draw all sprites
+        screen.fill(BACKGROUND_COLOR)
         all_sprites.draw(screen)
 
         # Refresh the display
