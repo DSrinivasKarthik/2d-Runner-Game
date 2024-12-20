@@ -1,0 +1,23 @@
+{
+    "background": {
+        "color": [255, 255, 255],
+        "image": "background.png"
+    },
+    "player": {
+        "color": [0, 255, 0],
+        "width": 50,
+        "height": 60,
+        "jump_strength": -15
+    },
+    "platforms": {
+        "color": [0, 0, 0],
+        "width": 100,
+        "height": 20
+    },
+    "obstacles": {
+        "type": "spike",
+        "color": [255, 0, 0],
+        "width": 30,
+        "height": 30
+    }
+}
