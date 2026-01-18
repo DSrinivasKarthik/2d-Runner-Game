@@ -44,6 +44,9 @@ class MainMenuScene(Scene):
         self._toast: str | None = None
         self._toast_timer = 0.0
 
+        self._shake_timer = 0.0
+        self._shake_strength = 0.0
+
         # Fade in / out
         self._fade_alpha = 255
         self._fade_dir = -1  # -1 fading in, +1 fading out, 0 none
@@ -94,6 +97,22 @@ class MainMenuScene(Scene):
     def _toast_message(self, msg: str, *, seconds: float = 1.6) -> None:
         self._toast = msg
         self._toast_timer = float(seconds)
+
+    def _thunk(self, msg: str = "Locked — coming soon") -> None:
+        self._toast_message(msg)
+        self._shake_timer = 0.18
+        self._shake_strength = 7.0
+
+    def _menu_offset(self) -> tuple[int, int]:
+        if self._settings.reduce_motion:
+            return (0, 0)
+        if self._shake_timer <= 0.0:
+            return (0, 0)
+
+        phase = (0.18 - self._shake_timer) * 80.0
+        dx = int(round(math.sin(phase * 1.7) * self._shake_strength))
+        dy = int(round(math.cos(phase * 1.2) * (self._shake_strength * 0.35)))
+        return (dx, dy)
 
     def _persist_settings(self) -> None:
         save_user_settings(self._settings, "user_settings.json")
@@ -235,40 +254,55 @@ class MainMenuScene(Scene):
         )
 
     def _make_extras_page(self) -> MenuPage:
-        def gentle_message() -> None:
-            msgs = [
-                "You're doing great.",
-                "Take breaks. Drink water.",
-                "Thanks for playing.",
-                "May your jumps be true.",
-            ]
-            self._toast_message(random.choice(msgs))
+        def locked(msg: str) -> None:
+            self._thunk(msg)
 
-        # Placeholders (future-proof): show the menu has room to grow.
+        # Locked placeholders (charm > dead-ends): selectable, shows a lock badge
+        # and gives a little feedback when pressed.
+        assist = ButtonItem(
+            "Little Encouragement",
+            lambda: locked(
+                random.choice(
+                    [
+                        "Locked — but hey, you're doing great.",
+                        "Locked — take breaks, drink water.",
+                        "Locked — thanks for playing.",
+                        "Locked — may your jumps be true.",
+                    ]
+                )
+            ),
+            hint="A tiny heart refill",
+            locked=True,
+            badge="Locked",
+        )
+
         jukebox = ButtonItem(
             "Jukebox",
-            lambda: self._toast_message("Coming soon"),
+            lambda: locked("Locked — soundtrack arrives later"),
             hint="Listen to unlocked tracks",
-            enabled=False,
+            locked=True,
+            badge="Locked",
         )
         museum = ButtonItem(
             "Museum",
-            lambda: self._toast_message("Coming soon"),
+            lambda: locked("Locked — the dev notes will be here"),
             hint="Concept art, dev notes, curios",
-            enabled=False,
+            locked=True,
+            badge="Locked",
         )
         challenge = ButtonItem(
             "Daily Challenge",
-            lambda: self._toast_message("Coming soon"),
+            lambda: locked("Locked — daily runs coming soon"),
             hint="Same seed for everyone",
-            enabled=False,
+            locked=True,
+            badge="Locked",
         )
 
         return MenuPage(
             title="Extras",
             subtitle="Optional joy",
             items=[
-                ButtonItem("A Little Encouragement", gentle_message, hint="A tiny heart refill"),
+                assist,
                 jukebox,
                 museum,
                 challenge,
@@ -297,7 +331,7 @@ class MainMenuScene(Scene):
             return
 
         # Ensure mouse hit-boxes are computed before input uses them.
-        self._view.compute_item_rects(self._stack.page)
+        self._view.compute_item_rects(self._stack.page, offset=self._menu_offset())
 
         if event.type == pygame.KEYDOWN:
             # Secret charm: Konami code unlocks a tiny surprise.
@@ -337,6 +371,12 @@ class MainMenuScene(Scene):
             self._toast_timer -= dt
             if self._toast_timer <= 0.0:
                 self._toast = None
+
+        if self._shake_timer > 0.0:
+            self._shake_timer -= dt
+            if self._shake_timer <= 0.0:
+                self._shake_timer = 0.0
+                self._shake_strength = 0.0
 
         self._bg.update(dt, reduce_motion=self._settings.reduce_motion)
 
@@ -398,7 +438,13 @@ class MainMenuScene(Scene):
         page.footer = "  •  ".join([s for s in [hint, back, controls] if s])
 
         # Draw menu panel
-        self._view.draw(screen, page=page, selected_index=self._input.selected_index, pulse=self._pulse)
+        self._view.draw(
+            screen,
+            page=page,
+            selected_index=self._input.selected_index,
+            pulse=self._pulse,
+            offset=self._menu_offset(),
+        )
 
         # Toast
         if self._toast:

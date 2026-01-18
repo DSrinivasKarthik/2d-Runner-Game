@@ -25,10 +25,20 @@ class MenuTheme:
 
 
 class MenuItem:
-    def __init__(self, label: str, *, hint: str = "", enabled: bool = True):
+    def __init__(
+        self,
+        label: str,
+        *,
+        hint: str = "",
+        enabled: bool = True,
+        locked: bool = False,
+        badge: str = "",
+    ):
         self.label = label
         self.hint = hint
         self.enabled = enabled
+        self.locked = locked
+        self.badge = badge
 
     def value_text(self) -> str:
         return ""
@@ -51,8 +61,10 @@ class ButtonItem(MenuItem):
         *,
         hint: str = "",
         enabled: bool = True,
+        locked: bool = False,
+        badge: str = "",
     ):
-        super().__init__(label, hint=hint, enabled=enabled)
+        super().__init__(label, hint=hint, enabled=enabled, locked=locked, badge=badge)
         self._cb = on_activate
 
     def on_activate(self) -> None:
@@ -200,6 +212,7 @@ class MenuView:
 
         self._item_rects: List[pygame.Rect] = []
         self._computed_item_gap: int = self._layout.item_gap
+        self._offset: tuple[int, int] = (0, 0)
 
     def _compute_item_gap(self, n_items: int) -> int:
         # Keep items from overlapping the footer by compressing spacing when needed.
@@ -221,13 +234,22 @@ class MenuView:
     def item_rects(self) -> Sequence[pygame.Rect]:
         return self._item_rects
 
-    def compute_item_rects(self, page: MenuPage) -> None:
+    def compute_item_rects(self, page: MenuPage, *, offset: tuple[int, int] = (0, 0)) -> None:
         self._item_rects = []
+        self._offset = (int(offset[0]), int(offset[1]))
         self._computed_item_gap = self._compute_item_gap(len(page.items))
         x, y = self._layout.item_start
+        x += self._offset[0]
+        y += self._offset[1]
         for _ in page.items:
             self._item_rects.append(pygame.Rect(x - 8, y - 6, self._layout.panel_rect.w - 40, 44))
             y += self._computed_item_gap
+
+    def _draw_lock_icon(self, screen: pygame.Surface, x: int, y: int, *, color: tuple[int, int, int]) -> None:
+        # Simple vector lock icon: body + shackle.
+        body = pygame.Rect(x, y + 8, 16, 14)
+        pygame.draw.rect(screen, color, body, width=2, border_radius=3)
+        pygame.draw.arc(screen, color, pygame.Rect(x + 2, y, 12, 14), 0, 3.14159, width=2)
 
     def draw(
         self,
@@ -236,30 +258,46 @@ class MenuView:
         page: MenuPage,
         selected_index: int,
         pulse: float,
+        offset: tuple[int, int] = (0, 0),
     ) -> None:
+        self._offset = (int(offset[0]), int(offset[1]))
+
         # Panel
         panel = pygame.Surface(self._layout.panel_rect.size, pygame.SRCALPHA)
         panel.fill((255, 255, 255, self._theme.panel_alpha))
         pygame.draw.rect(panel, (0, 0, 0, 50), panel.get_rect(), width=2, border_radius=14)
-        screen.blit(panel, self._layout.panel_rect.topleft)
+        panel_pos = (self._layout.panel_rect.x + self._offset[0], self._layout.panel_rect.y + self._offset[1])
+        screen.blit(panel, panel_pos)
 
         # Title & subtitle
         title = self._theme.title_font.render(page.title, True, self._theme.fg_color)
-        screen.blit(title, self._layout.title_pos)
+        screen.blit(title, (self._layout.title_pos[0] + self._offset[0], self._layout.title_pos[1] + self._offset[1]))
 
         if page.subtitle:
             subtitle = self._theme.small_font.render(page.subtitle, True, self._theme.muted_color)
-            screen.blit(subtitle, self._layout.subtitle_pos)
+            screen.blit(
+                subtitle,
+                (
+                    self._layout.subtitle_pos[0] + self._offset[0],
+                    self._layout.subtitle_pos[1] + self._offset[1],
+                ),
+            )
 
         # Items
-        self.compute_item_rects(page)
+        self.compute_item_rects(page, offset=self._offset)
         x, y = self._layout.item_start
+        x += self._offset[0]
+        y += self._offset[1]
         for i, item in enumerate(page.items):
             is_selected = i == selected_index
             enabled = item.enabled
 
             label_color = self._theme.fg_color if enabled else self._theme.muted_color
             value_color = self._theme.muted_color if enabled else (140, 140, 140)
+
+            if item.locked:
+                label_color = self._theme.muted_color
+                value_color = self._theme.muted_color
 
             if is_selected:
                 # Selection highlight
@@ -281,7 +319,36 @@ class MenuView:
             if value:
                 value_surf = self._theme.item_font.render(value, True, value_color)
                 vx = self._layout.item_value_x - value_surf.get_width()
-                screen.blit(value_surf, (vx, y))
+                screen.blit(value_surf, (vx + self._offset[0], y))
+
+            # Locked + badge treatment
+            badge = item.badge
+            if item.locked and not badge:
+                badge = "Coming soon"
+
+            if item.locked or badge:
+                badge_text = badge
+                badge_surf = self._theme.small_font.render(badge_text, True, self._theme.fg_color)
+                pad_x = 10
+                pad_y = 5
+                bw = badge_surf.get_width() + pad_x * 2
+                bh = badge_surf.get_height() + pad_y * 2
+
+                right_x = self._layout.item_value_x + self._offset[0]
+                bx = right_x - bw
+                by = y + 10
+                badge_box = pygame.Rect(bx, by, bw, bh)
+
+                bsurf = pygame.Surface(badge_box.size, pygame.SRCALPHA)
+                base = self._theme.accent_color if not item.locked else (90, 90, 90)
+                alpha = 70 if not is_selected else int(90 + 30 * pulse)
+                bsurf.fill((*base, alpha))
+                pygame.draw.rect(bsurf, (0, 0, 0, 60), bsurf.get_rect(), width=2, border_radius=999)
+                screen.blit(bsurf, badge_box.topleft)
+                screen.blit(badge_surf, (badge_box.x + pad_x, badge_box.y + pad_y))
+
+                if item.locked:
+                    self._draw_lock_icon(screen, badge_box.x - 24, y + 10, color=self._theme.muted_color)
 
             y += self._computed_item_gap
 
@@ -289,7 +356,13 @@ class MenuView:
         footer_text = page.footer
         if footer_text:
             footer = self._theme.small_font.render(footer_text, True, self._theme.muted_color)
-            screen.blit(footer, self._layout.footer_pos)
+            screen.blit(
+                footer,
+                (
+                    self._layout.footer_pos[0] + self._offset[0],
+                    self._layout.footer_pos[1] + self._offset[1],
+                ),
+            )
 
 
 class MenuInput:
