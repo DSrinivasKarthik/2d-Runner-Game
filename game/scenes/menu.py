@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import math
+import random
+import time
 from dataclasses import dataclass
 
 import pygame
@@ -7,6 +10,18 @@ import pygame
 from game.scene_manager import Scene, SceneResult
 from game.settings import GameConfig
 from game.scenes.gameplay import GameplayScene
+from game.ui.menu_effects import StarDriftBackground, wobble_text
+from game.ui.menu_framework import (
+    ButtonItem,
+    MenuInput,
+    MenuPage,
+    MenuStack,
+    MenuTheme,
+    MenuView,
+    SliderItem,
+    ToggleItem,
+)
+from game.user_settings import UserSettings, load_user_settings, save_user_settings
 
 
 @dataclass
@@ -15,45 +30,390 @@ class MainMenuScene(Scene):
     screen_size: tuple[int, int]
 
     def __post_init__(self) -> None:
-        self._selected = 0
-        self._items = ["Start", "Quit"]
-        self._font = pygame.font.SysFont(None, 48)
-        self._small = pygame.font.SysFont(None, 28)
+        self._screen_w, self._screen_h = self.screen_size
 
-    def handle_event(self, event: pygame.event.Event) -> None:
-        if event.type != pygame.KEYDOWN:
-            return
+        self._t = 0.0
+        self._pulse = 0.0
 
-        if event.key in (pygame.K_UP, pygame.K_w):
-            self._selected = (self._selected - 1) % len(self._items)
-        elif event.key in (pygame.K_DOWN, pygame.K_s):
-            self._selected = (self._selected + 1) % len(self._items)
-        elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
-            choice = self._items[self._selected]
-            if choice == "Start":
-                self._pending = SceneResult.switch(
+        # Persisted user settings for menu UX (and future use).
+        self._settings: UserSettings = load_user_settings("user_settings.json")
+
+        # Charm + ambience
+        seed = int(time.time()) ^ (self._screen_w << 8) ^ (self._screen_h << 16)
+        self._bg = StarDriftBackground(self.screen_size, seed=seed)
+        self._toast: str | None = None
+        self._toast_timer = 0.0
+
+        # Fade in / out
+        self._fade_alpha = 255
+        self._fade_dir = -1  # -1 fading in, +1 fading out, 0 none
+        self._fade_target: SceneResult | None = None
+
+        # Fonts & theme
+        title_font = pygame.font.SysFont(None, 72)
+        item_font = pygame.font.SysFont(None, 42)
+        small_font = pygame.font.SysFont(None, 24)
+
+        self._theme = MenuTheme(
+            bg_color=self.config.background_color,
+            fg_color=(20, 20, 20),
+            muted_color=(70, 70, 70),
+            accent_color=(0, 120, 255),
+            danger_color=(200, 40, 40),
+            title_font=title_font,
+            item_font=item_font,
+            small_font=small_font,
+            panel_alpha=210,
+        )
+
+        self._tagline = self._pick_tagline()
+        self._konami: list[int] = []
+        self._secret_unlocked = False
+
+        self._stack = MenuStack(self._make_main_page())
+        self._view = MenuView(self._theme, self.screen_size)
+        self._input = MenuInput(self._stack)
+
+        self._pending: SceneResult | None = None
+
+    def _pick_tagline(self) -> str:
+        # Inspiration notes (not copying): the best indie menus feel like a warm
+        # moment of calm: subtle motion, readable UI, a little whimsy.
+        taglines = [
+            "Press Enter. Stay awhile.",
+            "A tiny run. A big heart.",
+            "Made for late-night smiles.",
+            "Run. Jump. Breathe.",
+            "Your adventure starts… gently.",
+            "Small game. Big feelings.",
+        ]
+        # Deterministic-ish: stable per day to feel intentional.
+        day = int(time.time() // (24 * 60 * 60))
+        return taglines[day % len(taglines)]
+
+    def _toast_message(self, msg: str, *, seconds: float = 1.6) -> None:
+        self._toast = msg
+        self._toast_timer = float(seconds)
+
+    def _persist_settings(self) -> None:
+        save_user_settings(self._settings, "user_settings.json")
+
+    def _start_fade(self, target: SceneResult) -> None:
+        self._fade_target = target
+        self._fade_dir = 1
+        self._fade_alpha = max(0, int(self._fade_alpha))
+
+    def _apply_accessibility_theme(self) -> None:
+        # Keep menu readable even with high contrast.
+        if self._settings.high_contrast:
+            self._theme.fg_color = (0, 0, 0)
+            self._theme.muted_color = (25, 25, 25)
+            self._theme.accent_color = (0, 90, 255)
+            self._theme.panel_alpha = 235
+        else:
+            self._theme.fg_color = (20, 20, 20)
+            self._theme.muted_color = (70, 70, 70)
+            self._theme.accent_color = (0, 120, 255)
+            self._theme.panel_alpha = 210
+
+    def _make_main_page(self) -> MenuPage:
+        def play() -> None:
+            self._toast_message("Good luck. Have fun.")
+            self._start_fade(
+                SceneResult.switch(
                     GameplayScene(config=self.config, screen_size=self.screen_size)
                 )
-            elif choice == "Quit":
-                self._pending = SceneResult.quit()
+            )
+
+        def options() -> None:
+            self._stack.push(self._make_options_page())
+            self._input.selected_index = 0
+
+        def extras() -> None:
+            self._stack.push(self._make_extras_page())
+            self._input.selected_index = 0
+
+        def credits() -> None:
+            self._stack.push(self._make_credits_page())
+            self._input.selected_index = 0
+
+        def quit_game() -> None:
+            self._start_fade(SceneResult.quit())
+
+        items = [
+            ButtonItem("Play", play, hint="Start a new run"),
+            ButtonItem("Options", options, hint="Audio, visuals, accessibility"),
+            ButtonItem("Extras", extras, hint="Cute stuff and future modes"),
+            ButtonItem("Credits", credits, hint="Who made this?"),
+            ButtonItem("Quit", quit_game, hint="See you soon"),
+        ]
+        if self._secret_unlocked:
+            items.insert(
+                3,
+                ButtonItem(
+                    "Secret",
+                    lambda: self._toast_message("You found it. You're unstoppable."),
+                    hint="A little surprise",
+                ),
+            )
+
+        return MenuPage(
+            title="Main Menu",
+            subtitle="Up/Down • Enter • Esc",
+            items=items,
+            footer="",
+        )
+
+    def _make_options_page(self) -> MenuPage:
+        def set_master_volume(v: float) -> None:
+            self._settings.master_volume = max(0.0, min(1.0, float(v)))
+            self._persist_settings()
+
+        def set_reduce_motion(v: bool) -> None:
+            self._settings.reduce_motion = bool(v)
+            self._persist_settings()
+            self._toast_message("Motion settings updated")
+
+        def set_high_contrast(v: bool) -> None:
+            self._settings.high_contrast = bool(v)
+            self._persist_settings()
+            self._apply_accessibility_theme()
+
+        def set_show_fps(v: bool) -> None:
+            self._settings.show_fps = bool(v)
+            self._persist_settings()
+
+        def set_fullscreen(v: bool) -> None:
+            self._settings.fullscreen = bool(v)
+            self._persist_settings()
+            self._toast_message("Fullscreen applies on restart")
+
+        def reset() -> None:
+            self._settings = UserSettings()
+            self._persist_settings()
+            self._apply_accessibility_theme()
+            self._toast_message("Settings reset")
+
+        return MenuPage(
+            title="Options",
+            subtitle="Left/Right to change • Esc to go back",
+            items=[
+                SliderItem(
+                    "Master Volume",
+                    get_value=lambda: self._settings.master_volume,
+                    set_value=set_master_volume,
+                    step=0.05,
+                    hint="(Placeholder until audio is added)",
+                ),
+                ToggleItem(
+                    "Reduce Motion",
+                    get_value=lambda: self._settings.reduce_motion,
+                    set_value=set_reduce_motion,
+                    hint="Less animation, calmer menu",
+                ),
+                ToggleItem(
+                    "High Contrast",
+                    get_value=lambda: self._settings.high_contrast,
+                    set_value=set_high_contrast,
+                    hint="Improves readability",
+                ),
+                ToggleItem(
+                    "Show FPS",
+                    get_value=lambda: self._settings.show_fps,
+                    set_value=set_show_fps,
+                    hint="Developer-ish overlay (future)",
+                ),
+                ToggleItem(
+                    "Fullscreen",
+                    get_value=lambda: self._settings.fullscreen,
+                    set_value=set_fullscreen,
+                    hint="Applied next launch",
+                ),
+                ButtonItem("Reset to Defaults", reset, hint="Back to factory feelings"),
+            ],
+            footer="",
+        )
+
+    def _make_extras_page(self) -> MenuPage:
+        def gentle_message() -> None:
+            msgs = [
+                "You're doing great.",
+                "Take breaks. Drink water.",
+                "Thanks for playing.",
+                "May your jumps be true.",
+            ]
+            self._toast_message(random.choice(msgs))
+
+        # Placeholders (future-proof): show the menu has room to grow.
+        jukebox = ButtonItem(
+            "Jukebox",
+            lambda: self._toast_message("Coming soon"),
+            hint="Listen to unlocked tracks",
+            enabled=False,
+        )
+        museum = ButtonItem(
+            "Museum",
+            lambda: self._toast_message("Coming soon"),
+            hint="Concept art, dev notes, curios",
+            enabled=False,
+        )
+        challenge = ButtonItem(
+            "Daily Challenge",
+            lambda: self._toast_message("Coming soon"),
+            hint="Same seed for everyone",
+            enabled=False,
+        )
+
+        return MenuPage(
+            title="Extras",
+            subtitle="Optional joy",
+            items=[
+                ButtonItem("A Little Encouragement", gentle_message, hint="A tiny heart refill"),
+                jukebox,
+                museum,
+                challenge,
+            ],
+            footer="",
+        )
+
+    def _make_credits_page(self) -> MenuPage:
+        def thank_you() -> None:
+            self._toast_message("Thank you for playing")
+
+        return MenuPage(
+            title="Credits",
+            subtitle="(Placeholder)",
+            items=[
+                ButtonItem("Game", lambda: self._toast_message("2D Runner"), hint="A tiny project with big plans"),
+                ButtonItem("Made with", lambda: self._toast_message("Python + Pygame"), hint="Simple tools, real magic"),
+                ButtonItem("Thank you", thank_you, hint="Seriously."),
+            ],
+            footer="",
+        )
+
+    def handle_event(self, event: pygame.event.Event) -> None:
+        # Ignore input during fade-out.
+        if self._fade_dir == 1:
+            return
+
+        # Ensure mouse hit-boxes are computed before input uses them.
+        self._view.compute_item_rects(self._stack.page)
+
+        if event.type == pygame.KEYDOWN:
+            # Secret charm: Konami code unlocks a tiny surprise.
+            self._konami.append(int(event.key))
+            self._konami = self._konami[-12:]
+            code = [
+                pygame.K_UP,
+                pygame.K_UP,
+                pygame.K_DOWN,
+                pygame.K_DOWN,
+                pygame.K_LEFT,
+                pygame.K_RIGHT,
+                pygame.K_LEFT,
+                pygame.K_RIGHT,
+                pygame.K_b,
+                pygame.K_a,
+            ]
+            if not self._secret_unlocked and len(self._konami) >= len(code):
+                if self._konami[-len(code) :] == code:
+                    self._secret_unlocked = True
+                    # Rebuild main page if we're on it.
+                    if not self._stack.can_pop():
+                        self._stack = MenuStack(self._make_main_page())
+                        self._input = MenuInput(self._stack)
+                    self._toast_message("Secret unlocked!")
+
+        self._input.handle_event(event, view=self._view)
 
     def update(self, dt: float):
-        pending = getattr(self, "_pending", None)
-        self._pending = None
+        self._apply_accessibility_theme()
+
+        dt = float(dt)
+        self._t += dt
+        self._pulse = 0.5 + 0.5 * math.sin(self._t * 3.0)
+
+        if self._toast_timer > 0.0:
+            self._toast_timer -= dt
+            if self._toast_timer <= 0.0:
+                self._toast = None
+
+        self._bg.update(dt, reduce_motion=self._settings.reduce_motion)
+
+        # Fade transitions
+        if self._fade_dir != 0:
+            speed = 420.0  # alpha per second
+            self._fade_alpha = int(max(0, min(255, self._fade_alpha + self._fade_dir * speed * dt)))
+            if self._fade_dir == -1 and self._fade_alpha <= 0:
+                self._fade_alpha = 0
+                self._fade_dir = 0
+            elif self._fade_dir == 1 and self._fade_alpha >= 255:
+                self._fade_alpha = 255
+                target, self._fade_target = self._fade_target, None
+                self._fade_dir = 0
+                return target
+
+        pending, self._pending = self._pending, None
         return pending
 
     def draw(self, screen: pygame.Surface) -> None:
-        screen.fill(self.config.background_color)
+        # Background
+        self._bg.draw(
+            screen,
+            base_color=self.config.background_color,
+            accent=self._theme.accent_color,
+            high_contrast=self._settings.high_contrast,
+        )
 
-        title = self._font.render("2D Runner", True, (0, 0, 0))
-        subtitle = self._small.render("Up/Down + Enter", True, (0, 0, 0))
+        # Big title above the panel (a bit of charm)
+        title_text = wobble_text(
+            self._theme.title_font,
+            "2D Runner",
+            self._theme.fg_color,
+            t=self._t,
+            strength=0.0 if self._settings.reduce_motion else 2.2,
+        )
+        tx = (self._screen_w - title_text.get_width()) // 2
+        ty = max(20, (self._screen_h // 2) - 320)
 
-        screen.blit(title, (40, 40))
-        screen.blit(subtitle, (42, 90))
+        shadow = pygame.Surface(title_text.get_size(), pygame.SRCALPHA)
+        shadow.blit(title_text, (0, 0))
+        shadow.fill((0, 0, 0, 60), special_flags=pygame.BLEND_RGBA_MULT)
+        screen.blit(shadow, (tx + 2, ty + 3))
+        screen.blit(title_text, (tx, ty))
 
-        start_y = 180
-        for i, label in enumerate(self._items):
-            is_selected = i == self._selected
-            color = (20, 20, 20) if not is_selected else (0, 120, 255)
-            text = self._font.render(label, True, color)
-            screen.blit(text, (60, start_y + i * 70))
+        # Tagline
+        tagline = self._theme.small_font.render(self._tagline, True, self._theme.muted_color)
+        screen.blit(tagline, ((self._screen_w - tagline.get_width()) // 2, ty + title_text.get_height() + 8))
+
+        # Page-specific footer, including selected item hint.
+        page = self._stack.page
+        hint = ""
+        if page.items:
+            idx = max(0, min(self._input.selected_index, len(page.items) - 1))
+            hint = getattr(page.items[idx], "hint", "") or ""
+
+        back = "Esc: Back" if self._stack.can_pop() else ""
+        controls = "Mouse/Keys" if pygame.mouse.get_focused() else "Keys"
+        page.footer = "  •  ".join([s for s in [hint, back, controls] if s])
+
+        # Draw menu panel
+        self._view.draw(screen, page=page, selected_index=self._input.selected_index, pulse=self._pulse)
+
+        # Toast
+        if self._toast:
+            toast_surf = self._theme.small_font.render(self._toast, True, self._theme.fg_color)
+            pad = 10
+            box = pygame.Rect(0, 0, toast_surf.get_width() + pad * 2, toast_surf.get_height() + pad * 2)
+            box.center = (self._screen_w // 2, int(self._screen_h * 0.18))
+            s = pygame.Surface(box.size, pygame.SRCALPHA)
+            s.fill((255, 255, 255, 210 if not self._settings.high_contrast else 240))
+            pygame.draw.rect(s, (0, 0, 0, 70), s.get_rect(), width=2, border_radius=12)
+            screen.blit(s, box.topleft)
+            screen.blit(toast_surf, (box.x + pad, box.y + pad))
+
+        # Fade overlay
+        if self._fade_alpha > 0:
+            fade = pygame.Surface((self._screen_w, self._screen_h), pygame.SRCALPHA)
+            fade.fill((0, 0, 0, int(self._fade_alpha)))
+            screen.blit(fade, (0, 0))
