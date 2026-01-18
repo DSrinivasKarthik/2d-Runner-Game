@@ -15,6 +15,8 @@ SCREEN_HEIGHT = 600
 FPS = 60
 
 # Endless / world settings
+AUTO_RUN = True
+RUNNER_X = 160
 SCROLL_SPEED = 2.5
 
 # Colors from config
@@ -147,11 +149,13 @@ class Platform(pygame.sprite.Sprite):
         self.image = pygame.Surface((width, height))
         self.image.fill(PLATFORM_COLOR)
         self.rect = self.image.get_rect()
-        self.rect.x = x
+        self.pos_x = float(x)
+        self.rect.x = int(round(self.pos_x))
         self.rect.y = y
 
     def update(self, scroll_speed):
-        self.rect.x -= scroll_speed
+        self.pos_x -= float(scroll_speed)
+        self.rect.x = int(round(self.pos_x))
 
 
 def _platform_generation_params():
@@ -211,7 +215,7 @@ def main():
     all_sprites.add(player)
 
     # Create a ground platform (stable reference for gameplay)
-    ground = Platform(0, SCREEN_HEIGHT - PLATFORM_HEIGHT, width=SCREEN_WIDTH * 2)
+    ground = Platform(0, SCREEN_HEIGHT - PLATFORM_HEIGHT, width=SCREEN_WIDTH * 3)
     platforms.add(ground)
     all_sprites.add(ground)
 
@@ -245,30 +249,41 @@ def main():
                 if event.key == pygame.K_RIGHT:
                     player.stop_right()
 
-        # Move platforms (endless scroll) and recycle off-screen ones
+        # Base world scroll (auto-run)
         platforms.update(SCROLL_SPEED)
 
-        # Keep ground covering the bottom
-        if ground.rect.right < SCREEN_WIDTH:
-            ground.rect.left = 0
-        if ground.rect.left > 0:
-            ground.rect.left = 0
+        # Update player with proper collision resolution
+        player.update(platforms)
 
-        # Recycle off-screen platforms by spawning new ones ahead
-        # (ignore ground for recycling)
+        # Auto-run camera: keep the runner near a fixed X, move world instead.
+        if AUTO_RUN:
+            dx = player.rect.x - RUNNER_X
+            if dx != 0:
+                for plat in platforms:
+                    plat.pos_x -= dx
+                    plat.rect.x = int(round(plat.pos_x))
+                player.pos.x -= dx
+                player.rect.x = int(round(player.pos.x))
+
+        # Wrap ground so it always covers the bottom
+        while ground.rect.right < SCREEN_WIDTH:
+            ground.pos_x += ground.rect.width
+            ground.rect.x = int(round(ground.pos_x))
+        while ground.rect.left > 0:
+            ground.pos_x -= ground.rect.width
+            ground.rect.x = int(round(ground.pos_x))
+
+        # Recycle off-screen platforms by spawning new ones ahead (ignore ground)
         non_ground = [p for p in platforms if p is not ground]
         if non_ground:
             furthest = max(non_ground, key=lambda s: s.rect.right)
             for plat in list(non_ground):
-                if plat.rect.right < 0:
+                if plat.rect.right < -200:
                     plat.kill()
                     new_plat = spawn_next_platform(furthest)
                     platforms.add(new_plat)
                     all_sprites.add(new_plat)
                     furthest = new_plat
-
-        # Update player with proper collision resolution
-        player.update(platforms)
 
         # Fill the screen with background color and draw all sprites
         screen.fill(BACKGROUND_COLOR)
