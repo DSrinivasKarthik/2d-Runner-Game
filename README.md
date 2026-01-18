@@ -32,20 +32,19 @@ To run this game, you need to have Python and Pygame installed on your system.
 
 ## Usage
 
-1. **Download the Game Code**: Copy the provided game code into a file named `runner_game.py`.
+Run the game from the project root:
 
-2. **Run the Game**: Open your terminal or command prompt, navigate to the directory where you saved `runner_game.py`, and execute the following command:
+'' python main.py ''
 
-'' python runner_game.py ''
-
-
-3. Enjoy playing the game!
+(The legacy entry point `runnergame.py` still works and forwards to `main.py`.)
 
 ## Controls
 
-- **Spacebar**: Jump
+- **Up Arrow**: Jump
 - **Left Arrow**: Move left
 - **Right Arrow**: Move right
+- **Enter**: Select menu item
+- **Escape**: Return to main menu (during gameplay)
 
 ## Game Mechanics
 

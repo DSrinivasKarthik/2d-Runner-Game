@@ -1,6 +1,13 @@
-import pygame
-import random
-import json
+"""Legacy entry point.
+
+The project is migrating to a scene-based architecture. Prefer running `main.py`.
+"""
+
+from main import run
+
+
+if __name__ == "__main__":
+    run()
 
 # Initialize Pygame
 pygame.init()
