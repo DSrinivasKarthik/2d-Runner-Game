@@ -47,11 +47,29 @@ class Player(pygame.sprite.Sprite):
         self.change_x = 0
         self.change_y = 0
         self.on_ground = False
+        self.move_left = False
+        self.move_right = False
 
     def update(self):
+        # Grounded state is recomputed every frame from collisions
+        self.on_ground = False
+
+        # Apply smooth horizontal acceleration
+        if self.move_left:
+            if self.change_x > -8:
+                self.change_x -= 0.5
+        elif self.move_right:
+            if self.change_x < 8:
+                self.change_x += 0.5
+        else:
+            # Decelerate smoothly when no keys pressed
+            if self.change_x > 0:
+                self.change_x -= 0.5
+            elif self.change_x < 0:
+                self.change_x += 0.5
+        
         # Apply gravity
-        if not self.on_ground:
-            self.change_y += 1
+        self.change_y += 0.6
         
         # Move vertically
         self.rect.y += self.change_y
@@ -73,17 +91,20 @@ class Player(pygame.sprite.Sprite):
 
     def jump(self):
         if self.on_ground:
-            self.change_y += JUMP_STRENGTH
+            self.change_y = JUMP_STRENGTH
             self.on_ground = False
 
     def go_left(self):
-        self.change_x = -5
+        self.move_left = True
 
     def go_right(self):
-        self.change_x = 5
+        self.move_right = True
 
-    def stop(self):
-        self.change_x = 0
+    def stop_left(self):
+        self.move_left = False
+
+    def stop_right(self):
+        self.move_right = False
 
 
 class Platform(pygame.sprite.Sprite):
@@ -120,7 +141,7 @@ def main():
                 running = False
             
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
+                if event.key == pygame.K_UP:
                     player.jump()
                 if event.key == pygame.K_LEFT:
                     player.go_left()
@@ -128,14 +149,15 @@ def main():
                     player.go_right()
 
             if event.type == pygame.KEYUP:
-                if event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
-                    player.stop()
+                if event.key == pygame.K_LEFT:
+                    player.stop_left()
+                if event.key == pygame.K_RIGHT:
+                    player.stop_right()
 
         # Update sprites
         all_sprites.update()
 
         # Check for collisions with platforms (basic example)
-        player.on_ground = False 
         for platform in platforms:
             if player.rect.colliderect(platform.rect) and player.change_y >= 0:
                 player.rect.bottom = platform.rect.top 
