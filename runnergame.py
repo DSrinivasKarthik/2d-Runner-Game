@@ -44,50 +44,81 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.x = 50
         self.rect.y = SCREEN_HEIGHT - PLAYER_HEIGHT - PLATFORM_HEIGHT
+        self.pos = pygame.Vector2(self.rect.x, self.rect.y)
         self.change_x = 0
         self.change_y = 0
         self.on_ground = False
         self.move_left = False
         self.move_right = False
 
-    def update(self):
+    def update(self, platforms):
         # Grounded state is recomputed every frame from collisions
         self.on_ground = False
 
+        # Movement tuning
+        max_speed = 8.0
+        accel = 0.5
+        friction = 0.5
+        gravity = 0.6
+
         # Apply smooth horizontal acceleration
-        if self.move_left:
-            if self.change_x > -8:
-                self.change_x -= 0.5
-        elif self.move_right:
-            if self.change_x < 8:
-                self.change_x += 0.5
+        if self.move_left and not self.move_right:
+            self.change_x = max(self.change_x - accel, -max_speed)
+        elif self.move_right and not self.move_left:
+            self.change_x = min(self.change_x + accel, max_speed)
         else:
             # Decelerate smoothly when no keys pressed
             if self.change_x > 0:
-                self.change_x -= 0.5
+                self.change_x = max(0, self.change_x - friction)
             elif self.change_x < 0:
-                self.change_x += 0.5
-        
+                self.change_x = min(0, self.change_x + friction)
+
         # Apply gravity
-        self.change_y += 0.6
-        
-        # Move vertically
-        self.rect.y += self.change_y
-        
-        # Check for collision with ground/platforms
-        if self.rect.y >= SCREEN_HEIGHT - PLAYER_HEIGHT:
-            self.rect.y = SCREEN_HEIGHT - PLAYER_HEIGHT
+        self.change_y += gravity
+
+        # --- Horizontal move + resolve ---
+        self.pos.x += self.change_x
+        self.rect.x = round(self.pos.x)
+
+        for platform in pygame.sprite.spritecollide(self, platforms, False):
+            if self.change_x > 0:
+                self.rect.right = platform.rect.left
+            elif self.change_x < 0:
+                self.rect.left = platform.rect.right
+            self.pos.x = self.rect.x
+            self.change_x = 0
+
+        # Screen bounds (horizontal)
+        if self.rect.left < 0:
+            self.rect.left = 0
+            self.pos.x = self.rect.x
+            self.change_x = 0
+        elif self.rect.right > SCREEN_WIDTH:
+            self.rect.right = SCREEN_WIDTH
+            self.pos.x = self.rect.x
+            self.change_x = 0
+
+        # --- Vertical move + resolve ---
+        self.pos.y += self.change_y
+        self.rect.y = round(self.pos.y)
+
+        for platform in pygame.sprite.spritecollide(self, platforms, False):
+            if self.change_y > 0:
+                # Falling: land on top
+                self.rect.bottom = platform.rect.top
+                self.on_ground = True
+            elif self.change_y < 0:
+                # Rising: hit head
+                self.rect.top = platform.rect.bottom
+            self.pos.y = self.rect.y
+            self.change_y = 0
+
+        # Ground clamp
+        if self.rect.bottom >= SCREEN_HEIGHT:
+            self.rect.bottom = SCREEN_HEIGHT
+            self.pos.y = self.rect.y
             self.on_ground = True
             self.change_y = 0
-        
-        # Move horizontally
-        self.rect.x += self.change_x
-        
-        # Boundaries check
-        if self.rect.x < 0:
-            self.rect.x = 0
-        elif self.rect.x > SCREEN_WIDTH - PLAYER_WIDTH:
-            self.rect.x = SCREEN_WIDTH - PLAYER_WIDTH
 
     def jump(self):
         if self.on_ground:
@@ -154,15 +185,8 @@ def main():
                 if event.key == pygame.K_RIGHT:
                     player.stop_right()
 
-        # Update sprites
-        all_sprites.update()
-
-        # Check for collisions with platforms (basic example)
-        for platform in platforms:
-            if player.rect.colliderect(platform.rect) and player.change_y >= 0:
-                player.rect.bottom = platform.rect.top 
-                player.on_ground = True 
-                player.change_y = 0 
+        # Update player with proper collision resolution
+        player.update(platforms)
 
         # Fill the screen with background color and draw all sprites
         screen.fill(BACKGROUND_COLOR)
