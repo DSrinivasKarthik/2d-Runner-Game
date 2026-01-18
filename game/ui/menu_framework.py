@@ -199,6 +199,23 @@ class MenuView:
         )
 
         self._item_rects: List[pygame.Rect] = []
+        self._computed_item_gap: int = self._layout.item_gap
+
+    def _compute_item_gap(self, n_items: int) -> int:
+        # Keep items from overlapping the footer by compressing spacing when needed.
+        # This makes pages with many items (e.g., Options) readable without resizing.
+        if n_items <= 1:
+            return self._layout.item_gap
+
+        start_y = self._layout.item_start[1]
+        footer_y = self._layout.footer_pos[1]
+        item_height = 44
+        # Space available for the list area (leave a little breathing room).
+        available = max(0, (footer_y - 10) - start_y)
+        # Total height is item_height + (n-1)*gap.
+        max_gap = (available - item_height) // max(1, (n_items - 1))
+        # Clamp: don't get too tight, don't exceed the designed gap.
+        return int(max(38, min(self._layout.item_gap, max_gap)))
 
     @property
     def item_rects(self) -> Sequence[pygame.Rect]:
@@ -206,10 +223,11 @@ class MenuView:
 
     def compute_item_rects(self, page: MenuPage) -> None:
         self._item_rects = []
+        self._computed_item_gap = self._compute_item_gap(len(page.items))
         x, y = self._layout.item_start
         for _ in page.items:
             self._item_rects.append(pygame.Rect(x - 8, y - 6, self._layout.panel_rect.w - 40, 44))
-            y += self._layout.item_gap
+            y += self._computed_item_gap
 
     def draw(
         self,
@@ -265,7 +283,7 @@ class MenuView:
                 vx = self._layout.item_value_x - value_surf.get_width()
                 screen.blit(value_surf, (vx, y))
 
-            y += self._layout.item_gap
+            y += self._computed_item_gap
 
         # Footer
         footer_text = page.footer
@@ -292,13 +310,10 @@ class MenuInput:
         if not items:
             return
 
-        start = self.selected_index
+        # Allow focusing disabled items too, so players can discover "Coming soon"
+        # entries and read their hints (activation still no-ops when disabled).
         n = len(items)
-        for step in range(1, n + 1):
-            idx = (start + delta * step) % n
-            if items[idx].enabled:
-                self.selected_index = idx
-                return
+        self.selected_index = (self.selected_index + delta) % n
 
     def back(self) -> None:
         if self._stack.can_pop():
@@ -331,7 +346,7 @@ class MenuInput:
         elif event.type == pygame.MOUSEMOTION:
             pos = event.pos
             for i, r in enumerate(view.item_rects):
-                if r.collidepoint(pos) and page.items[i].enabled:
+                if r.collidepoint(pos):
                     self.selected_index = i
                     break
 
