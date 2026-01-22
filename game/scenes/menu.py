@@ -21,6 +21,7 @@ from game.ui.menu_framework import (
     SliderItem,
     ToggleItem,
 )
+from game.ui.menu_transitions import CrossfadeTransition, TransitionState
 from game.user_settings import UserSettings, load_user_settings, save_user_settings
 
 
@@ -46,6 +47,9 @@ class MainMenuScene(Scene):
 
         self._shake_timer = 0.0
         self._shake_strength = 0.0
+
+        # Page transitions (pluggable). Keep this simple for now.
+        self._transition = CrossfadeTransition(duration=0.16, dim_old=0.10)
 
         # Fade in / out
         self._fade_alpha = 255
@@ -103,6 +107,97 @@ class MainMenuScene(Scene):
         self._shake_timer = 0.18
         self._shake_strength = 7.0
 
+    def _update_footer(self, page: MenuPage, selected_index: int, *, can_pop: bool) -> None:
+        hint = ""
+        if page.items:
+            idx = max(0, min(int(selected_index), len(page.items) - 1))
+            hint = getattr(page.items[idx], "hint", "") or ""
+        back = "Esc: Back" if can_pop else ""
+        controls = "Mouse/Keys" if pygame.mouse.get_focused() else "Keys"
+        page.footer = "  •  ".join([s for s in [hint, back, controls] if s])
+
+    def _begin_transition(
+        self,
+        *,
+        from_page: MenuPage,
+        to_page: MenuPage,
+        origin: tuple[int, int],
+        from_selected: int,
+        to_selected: int,
+        from_can_pop: bool,
+        to_can_pop: bool,
+    ) -> None:
+        if self._settings.reduce_motion:
+            self._transition.cancel()
+            return
+
+        self._update_footer(from_page, from_selected, can_pop=from_can_pop)
+        self._update_footer(to_page, to_selected, can_pop=to_can_pop)
+
+        # Render both pages to surfaces and let the transition composite them.
+        from_surf = pygame.Surface((self._screen_w, self._screen_h), pygame.SRCALPHA)
+        to_surf = pygame.Surface((self._screen_w, self._screen_h), pygame.SRCALPHA)
+
+        self._view.draw(from_surf, page=from_page, selected_index=from_selected, pulse=self._pulse, offset=(0, 0))
+        self._view.draw(to_surf, page=to_page, selected_index=to_selected, pulse=self._pulse, offset=(0, 0))
+
+        self._transition.start(
+            TransitionState(
+                from_surface=from_surf,
+                to_surface=to_surf,
+                origin=(int(origin[0]), int(origin[1])),
+                from_selected=int(from_selected),
+                to_selected=int(to_selected),
+            )
+        )
+
+    def _selected_item_center(self, page: MenuPage, selected_index: int) -> tuple[int, int]:
+        if not page.items:
+            return (self._screen_w // 2, self._screen_h // 2)
+        self._view.compute_item_rects(page, offset=(0, 0))
+        idx = max(0, min(int(selected_index), len(self._view.item_rects) - 1))
+        return self._view.item_rects[idx].center
+
+    def _push_page(self, page: MenuPage, *, default_selected: int = 0) -> None:
+        from_page = self._stack.page
+        from_selected = self._input.selected_index
+        from_can_pop = self._stack.can_pop()
+        origin = self._selected_item_center(from_page, from_selected)
+
+        # Push immediately so stack.page becomes the new page; transition draws from->to.
+        self._stack.push(page)
+        self._input.selected_index = int(default_selected)
+        self._begin_transition(
+            from_page=from_page,
+            to_page=page,
+            origin=origin,
+            from_selected=from_selected,
+            to_selected=self._input.selected_index,
+            from_can_pop=from_can_pop,
+            to_can_pop=True,
+        )
+
+    def _pop_page(self) -> None:
+        if not self._stack.can_pop():
+            return
+
+        from_page = self._stack.page
+        from_selected = self._input.selected_index
+        origin = self._selected_item_center(from_page, from_selected)
+
+        self._stack.pop()
+        to_page = self._stack.page
+        self._input.selected_index = 0
+        self._begin_transition(
+            from_page=from_page,
+            to_page=to_page,
+            origin=origin,
+            from_selected=from_selected,
+            to_selected=self._input.selected_index,
+            from_can_pop=True,
+            to_can_pop=self._stack.can_pop(),
+        )
+
     def _menu_offset(self) -> tuple[int, int]:
         if self._settings.reduce_motion:
             return (0, 0)
@@ -145,20 +240,16 @@ class MainMenuScene(Scene):
             )
 
         def options() -> None:
-            self._stack.push(self._make_options_page())
-            self._input.selected_index = 0
+            self._push_page(self._make_options_page(), default_selected=0)
 
         def extras() -> None:
-            self._stack.push(self._make_extras_page())
-            self._input.selected_index = 0
+            self._push_page(self._make_extras_page(), default_selected=0)
 
         def credits() -> None:
-            self._stack.push(self._make_credits_page())
-            self._input.selected_index = 0
+            self._push_page(self._make_credits_page(), default_selected=0)
 
         def quit_game() -> None:
-            self._stack.push(self._make_quit_confirm_page())
-            self._input.selected_index = 1  # Default to "No"
+            self._push_page(self._make_quit_confirm_page(), default_selected=1)  # Default to "No"
 
         items = [
             ButtonItem("Play", play, hint="Start a new run"),
@@ -332,7 +423,7 @@ class MainMenuScene(Scene):
             self._start_fade(SceneResult.quit())
 
         def cancel_quit() -> None:
-            self._input.back()
+            self._pop_page()
 
         return MenuPage(
             title="Quit Game",
@@ -345,14 +436,23 @@ class MainMenuScene(Scene):
         )
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        # Ignore input during fade-out.
-        if self._fade_dir == 1:
+        # Ignore input during fade-out or transitions.
+        if self._fade_dir == 1 or self._transition.active:
             return
 
         # Ensure mouse hit-boxes are computed before input uses them.
         self._view.compute_item_rects(self._stack.page, offset=self._menu_offset())
 
         if event.type == pygame.KEYDOWN:
+            # Scene-level back handling so we can animate and correctly pop.
+            if event.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
+                if self._stack.can_pop():
+                    self._pop_page()
+                else:
+                    # On root, Esc opens Quit confirmation (common indie behavior).
+                    self._push_page(self._make_quit_confirm_page(), default_selected=1)
+                return
+
             # Secret charm: Konami code unlocks a tiny surprise.
             self._konami.append(int(event.key))
             self._konami = self._konami[-12:]
@@ -396,6 +496,9 @@ class MainMenuScene(Scene):
             if self._shake_timer <= 0.0:
                 self._shake_timer = 0.0
                 self._shake_strength = 0.0
+
+        if self._transition.active:
+            self._transition.update(dt)
 
         self._bg.update(dt, reduce_motion=self._settings.reduce_motion)
 
@@ -445,25 +548,20 @@ class MainMenuScene(Scene):
         tagline = self._theme.small_font.render(self._tagline, True, self._theme.muted_color)
         screen.blit(tagline, ((self._screen_w - tagline.get_width()) // 2, ty + title_text.get_height() + 8))
 
-        # Page-specific footer, including selected item hint.
         page = self._stack.page
-        hint = ""
-        if page.items:
-            idx = max(0, min(self._input.selected_index, len(page.items) - 1))
-            hint = getattr(page.items[idx], "hint", "") or ""
 
-        back = "Esc: Back" if self._stack.can_pop() else ""
-        controls = "Mouse/Keys" if pygame.mouse.get_focused() else "Keys"
-        page.footer = "  •  ".join([s for s in [hint, back, controls] if s])
-
-        # Draw menu panel
-        self._view.draw(
-            screen,
-            page=page,
-            selected_index=self._input.selected_index,
-            pulse=self._pulse,
-            offset=self._menu_offset(),
-        )
+        if self._transition.active and not self._settings.reduce_motion:
+            # Transition already contains fully rendered from/to frames.
+            self._transition.draw(screen)
+        else:
+            self._update_footer(page, self._input.selected_index, can_pop=self._stack.can_pop())
+            self._view.draw(
+                screen,
+                page=page,
+                selected_index=self._input.selected_index,
+                pulse=self._pulse,
+                offset=self._menu_offset(),
+            )
 
         # Toast
         if self._toast:
