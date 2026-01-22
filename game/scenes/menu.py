@@ -157,7 +157,8 @@ class MainMenuScene(Scene):
             self._input.selected_index = 0
 
         def quit_game() -> None:
-            self._start_fade(SceneResult.quit())
+            self._stack.push(self._make_quit_confirm_page())
+            self._input.selected_index = 1  # Default to "No"
 
         items = [
             ButtonItem("Play", play, hint="Start a new run"),
@@ -321,6 +322,24 @@ class MainMenuScene(Scene):
                 ButtonItem("Game", lambda: self._toast_message("2D Runner"), hint="A tiny project with big plans"),
                 ButtonItem("Made with", lambda: self._toast_message("Python + Pygame"), hint="Simple tools, real magic"),
                 ButtonItem("Thank you", thank_you, hint="Seriously."),
+            ],
+            footer="",
+        )
+
+    def _make_quit_confirm_page(self) -> MenuPage:
+        def confirm_quit() -> None:
+            self._toast_message("See you next time!")
+            self._start_fade(SceneResult.quit())
+
+        def cancel_quit() -> None:
+            self._input.back()
+
+        return MenuPage(
+            title="Quit Game",
+            subtitle="Are you sure you want to quit?",
+            items=[
+                ButtonItem("Yes, quit", confirm_quit, hint="Exit to desktop"),
+                ButtonItem("No, stay", cancel_quit, hint="Back to the menu"),
             ],
             footer="",
         )
