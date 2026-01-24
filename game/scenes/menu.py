@@ -56,6 +56,11 @@ class MainMenuScene(Scene):
         self._shake_timer = 0.0
         self._shake_strength = 0.0
 
+        # Credits scroll state
+        self._credits_scroll = 0.0
+        self._credits_items: list[tuple[str, str, str]] = []  # (role, name, type)
+        self._credits_easter_eggs: dict[str, int] = {}  # name -> click count
+
         # Page transitions (pluggable). Keep this simple for now.
         self._transition = CrossfadeTransition(duration=0.16)
 
@@ -130,6 +135,10 @@ class MainMenuScene(Scene):
             pass
 
     def _current_focus_pos(self) -> tuple[int, int]:
+        # Special case: interactive credits scroll influence
+        if self._stack.page.title == "Credits":
+            return (self._screen_w // 2, int(self._screen_h * 0.4))
+
         # Default focus is current selection.
         page = self._stack.page
         sel = int(self._input.selected_index)
@@ -443,17 +452,37 @@ class MainMenuScene(Scene):
         )
 
     def _make_credits_page(self) -> MenuPage:
-        def thank_you() -> None:
-            self._toast_message("Thank you for playing")
+        # Reset scroll state on entry
+        self._credits_scroll = -self._screen_h * 0.6
+        self._credits_items = [
+            ("Created by", "Srinivas Karthik", "lead"),
+            ("", "— A solo indie journey —", "stat"),
+            ("Programming", "Srinivas Karthik", "normal"),
+            ("Design", "Srinivas Karthik", "normal"),
+            ("UI/UX", "Srinivas Karthik", "normal"),
+            ("", "☕ Countless cups of coffee", "stat"),
+            ("Art Direction", "Procedural Geometry", "normal"),
+            ("Particles & VFX", "Mathematical Magic", "normal"),
+            ("", "⏱️ Late-night debugging sessions", "stat"),
+            ("Engine", "Pygame Community", "normal"),
+            ("", "🎮 Made for players who appreciate small games", "stat"),
+            ("Special Thanks", "You (The Player)", "heart"),
+            ("", "Made with ❤️ and 🐍", "footer"),
+            ("", "Keep running. Keep dreaming.", "footer"),
+        ]
 
+        # An empty interactive page that effectively acts as a canvas for our custom draw routine
+        def go_back() -> None:
+            self._pop_page()
+
+        # Invisible giant button to catch clicks anywhere to exit or speed up?
+        # For now, just a back button at the bottom.
+        back_btn = ButtonItem("Back", go_back, hint="Return to main menu")
+        
         return MenuPage(
             title="Credits",
-            subtitle="(Placeholder)",
-            items=[
-                ButtonItem("Game", lambda: self._toast_message("2D Runner"), hint="A tiny project with big plans"),
-                ButtonItem("Made with", lambda: self._toast_message("Python + Pygame"), hint="Simple tools, real magic"),
-                ButtonItem("Thank you", thank_you, hint="Seriously."),
-            ],
+            subtitle="",
+            items=[back_btn],
             footer="",
         )
 
@@ -479,6 +508,12 @@ class MainMenuScene(Scene):
     def handle_event(self, event: pygame.event.Event) -> None:
         # Ignore input during fade-out or transitions.
         if self._fade_dir == 1 or self._transition.active:
+            return
+
+        # Credits page: click on names for easter eggs
+        if self._stack.page.title == "Credits" and event.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = pygame.mouse.get_pos()
+            self._handle_credits_click(mx, my)
             return
 
         # Ensure mouse hit-boxes are computed before input uses them.
@@ -574,6 +609,14 @@ class MainMenuScene(Scene):
 
         self._bg.update(dt, reduce_motion=self._settings.reduce_motion)
 
+        # Credits logic: auto-scroll
+        if self._stack.page.title == "Credits" and not self._settings.reduce_motion:
+            speed = 45.0
+            # Mouse interaction: speed up or reverse slightly based on mouse Y?
+            # Let's keep it auto-scrolling upwards but allow mouse wheel to override via standard input handling later?
+            # For now: simple auto-scroll.
+            self._credits_scroll += speed * dt
+
         # Fade transitions
         if self._fade_dir != 0:
             speed = 420.0  # alpha per second
@@ -589,6 +632,175 @@ class MainMenuScene(Scene):
 
         pending, self._pending = self._pending, None
         return pending
+
+    def _handle_credits_click(self, mx: int, my: int) -> None:
+        """Easter eggs for clicking on credit names"""
+        cx = self._screen_w // 2
+        y_off = 140 - self._credits_scroll
+        
+        for role, name, kind in self._credits_items:
+            if not name or kind in ("stat", "footer"):
+                continue
+            
+            # Compute y position (same logic as draw)
+            if kind == "lead":
+                gap = 60
+                margin = 120
+            elif kind == "heart":
+                gap = 28
+                margin = 90
+            else:
+                gap = 28
+                margin = 90
+            
+            y_off += gap
+            
+            # Simple hit test (loose)
+            name_font = self._theme.title_font if kind == "lead" else self._theme.item_font
+            n_surf = name_font.render(name, True, (0, 0, 0))
+            w = n_surf.get_width()
+            h = n_surf.get_height()
+            
+            if (cx - w // 2 < mx < cx + w // 2) and (y_off - 10 < my < y_off + h + 10):
+                # Easter egg messages
+                messages = {
+                    "Srinivas Karthik": "Thanks for checking! This was a fun build 🚀",
+                    "Procedural Geometry": "No artists were harmed in the making of this game.",
+                    "Mathematical Magic": "sin(), cos(), and a sprinkle of randomness.",
+                    "Pygame Community": "🐍 Python game dev forever!",
+                    "GitHub Copilot": "Beep boop. Happy to help!",
+                    "Celeste, Hollow Knight, Stardew Valley": "These games changed my life.",
+                    "You (The Player)": "You're awesome. Seriously. Thank you. ❤️",
+                }
+                msg = messages.get(name, f"Thanks for clicking on {name}!")
+                self._toast_message(msg, seconds=2.2)
+                self._bg.poke((cx, y_off + h // 2), strength=0.8, seconds=0.2)
+                return
+            
+            y_off += margin
+
+    def _draw_credits(self, screen: pygame.Surface) -> None:
+        cx = self._screen_w // 2
+        cy = self._screen_h // 2
+        
+        # Dark vignette overlay for better text readability
+        vignette = pygame.Surface((self._screen_w, self._screen_h), pygame.SRCALPHA)
+        for i in range(60):
+            alpha = int(i * 1.5)
+            pygame.draw.rect(vignette, (0, 0, 0, alpha), vignette.get_rect(), width=1)
+        screen.blit(vignette, (0, 0))
+        
+        # Pulsing title with glow
+        title_s = self._theme.title_font.render("Credits", True, self._theme.accent_color)
+        scale = 1.0 + 0.08 * math.sin(self._t * 2.5)
+        w = int(title_s.get_width() * scale)
+        h = int(title_s.get_height() * scale)
+        
+        # Glow effect
+        glow = pygame.Surface((w + 20, h + 20), pygame.SRCALPHA)
+        for r in range(5, 15, 2):
+            glow_surf = pygame.transform.smoothscale(title_s, (w + r, h + r))
+            glow_surf.set_alpha(20)
+            glow.blit(glow_surf, (10 - r // 2, 10 - r // 2))
+        screen.blit(glow, (cx - w // 2 - 10, 30))
+        
+        scaled_title = pygame.transform.smoothscale(title_s, (w, h))
+        screen.blit(scaled_title, (cx - w // 2, 40))
+
+        y_off = 140 - self._credits_scroll
+        
+        for idx, (role, name, kind) in enumerate(self._credits_items):
+            # Layout based on type
+            if kind == "lead":
+                role_font = self._theme.item_font
+                name_font = self._theme.title_font
+                gap = 60
+                margin = 120
+                color = (255, 215, 0)  # Gold for lead
+            elif kind == "heart":
+                role_font = self._theme.small_font
+                name_font = self._theme.title_font
+                gap = 28
+                margin = 90
+                color = (255, 100, 150)  # Pink/heart color
+            elif kind == "stat":
+                role_font = self._theme.small_font
+                name_font = self._theme.small_font
+                gap = 20
+                margin = 70
+                color = (150, 150, 255)  # Soft purple for stats
+            elif kind == "footer":
+                role_font = self._theme.small_font
+                name_font = self._theme.item_font
+                gap = 20
+                margin = 180
+                color = self._theme.accent_color
+            else:
+                role_font = self._theme.small_font
+                name_font = self._theme.item_font
+                gap = 28
+                margin = 90
+                color = (220, 220, 220)  # Bright white
+
+            # Draw role
+            if role:
+                r_surf = role_font.render(role, True, self._theme.muted_color)
+                # Depth-based alpha
+                dist = (y_off - cy) / (self._screen_h * 0.6)
+                alpha = max(0, min(255, int(255 - abs(dist) * 280)))
+                if alpha > 10:
+                    r_surf.set_alpha(alpha)
+                    screen.blit(r_surf, (cx - r_surf.get_width() // 2, y_off))
+            
+            # Draw name
+            y_off += gap
+            n_surf = name_font.render(name, True, color)
+            
+            # Smooth depth-based fade with better curve
+            dist = (y_off - cy) / (self._screen_h * 0.6)
+            fade_curve = 1.0 - min(1.0, abs(dist) ** 1.5)  # Exponential fade
+            alpha = int(255 * max(0.0, fade_curve))
+            
+            if alpha > 10:
+                n_surf.set_alpha(alpha)
+                nx = cx - n_surf.get_width() // 2
+                
+                # Sparkle effect on lead credit
+                if kind == "lead" and alpha > 200:
+                    for _ in range(3):
+                        sparkle_x = nx + random.randint(-40, n_surf.get_width() + 40)
+                        sparkle_y = y_off + random.randint(-10, n_surf.get_height() + 10)
+                        sparkle_life = (self._t * 3 + sparkle_x * 0.01) % 1.0
+                        if sparkle_life < 0.3:
+                            s_alpha = int(200 * math.sin(sparkle_life * math.pi / 0.3))
+                            pygame.draw.circle(screen, (255, 255, 150, s_alpha), (sparkle_x, sparkle_y), 2)
+                
+                screen.blit(n_surf, (nx, y_off))
+            
+            y_off += margin
+
+        # Loop scroll smoothly
+        total_h = y_off + self._credits_scroll
+        if self._credits_scroll > total_h + 200:
+             self._credits_scroll = -self._screen_h * 0.6
+
+        # Top and bottom gradient masks for smooth fade
+        gradient_h = 120
+        top_grad = pygame.Surface((self._screen_w, gradient_h), pygame.SRCALPHA)
+        bot_grad = pygame.Surface((self._screen_w, gradient_h), pygame.SRCALPHA)
+        for i in range(gradient_h):
+            alpha = int(255 * (1.0 - i / gradient_h))
+            bg = self.config.background_color
+            top_grad.fill((*bg, alpha), pygame.Rect(0, i, self._screen_w, 1))
+            bot_grad.fill((*bg, alpha), pygame.Rect(0, gradient_h - i - 1, self._screen_w, 1))
+        screen.blit(top_grad, (0, 0))
+        screen.blit(bot_grad, (0, self._screen_h - gradient_h))
+        
+        # Interactive hint
+        hint = self._theme.small_font.render("Click on names • Press Esc to Back", True, self._theme.muted_color)
+        h_alpha = int(180 + 75 * math.sin(self._t * 2.0))
+        hint.set_alpha(h_alpha)
+        screen.blit(hint, (cx - hint.get_width() // 2, self._screen_h - 40))
 
     def draw(self, screen: pygame.Surface) -> None:
         # Background
@@ -626,14 +838,17 @@ class MainMenuScene(Scene):
             # Transition already contains fully rendered from/to frames.
             self._transition.draw(screen)
         else:
-            self._update_footer(page, self._input.selected_index, can_pop=self._stack.can_pop())
-            self._view.draw(
-                screen,
-                page=page,
-                selected_index=self._input.selected_index,
-                pulse=self._pulse,
-                offset=self._menu_offset(),
-            )
+            if page.title == "Credits":
+                self._draw_credits(screen)
+            else:
+                self._update_footer(page, self._input.selected_index, can_pop=self._stack.can_pop())
+                self._view.draw(
+                    screen,
+                    page=page,
+                    selected_index=self._input.selected_index,
+                    pulse=self._pulse,
+                    offset=self._menu_offset(),
+                )
 
         # Toast with smooth fade/scale animation
         if self._toast and self._toast_alpha > 0.01:
