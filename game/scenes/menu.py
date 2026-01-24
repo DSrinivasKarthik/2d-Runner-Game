@@ -45,11 +45,14 @@ class MainMenuScene(Scene):
         self._toast: str | None = None
         self._toast_timer = 0.0
 
+        # Dynamic Background Reactivity: track selection/hover to drive subtle pulses.
+        self._last_focus_key: tuple[int, int] = (0, -1)  # (page_id, selected_index)
+
         self._shake_timer = 0.0
         self._shake_strength = 0.0
 
         # Page transitions (pluggable). Keep this simple for now.
-        self._transition = CrossfadeTransition(duration=0.16, dim_old=0.10)
+        self._transition = CrossfadeTransition(duration=0.16)
 
         # Fade in / out
         self._fade_alpha = 255
@@ -106,6 +109,30 @@ class MainMenuScene(Scene):
         self._toast_message(msg)
         self._shake_timer = 0.18
         self._shake_strength = 7.0
+
+        # Stronger background poke for locked items.
+        try:
+            pos = self._selected_item_center(self._stack.page, self._input.selected_index)
+            self._bg.poke(pos, strength=1.35, seconds=0.22)
+        except Exception:
+            pass
+
+    def _current_focus_pos(self) -> tuple[int, int]:
+        # Default focus is current selection.
+        page = self._stack.page
+        sel = int(self._input.selected_index)
+        focus = self._selected_item_center(page, sel)
+
+        # If mouse is over an item, use hover as focus.
+        if pygame.mouse.get_focused() and page.items:
+            mp = pygame.mouse.get_pos()
+            self._view.compute_item_rects(page, offset=self._menu_offset())
+            for r in self._view.item_rects:
+                if r.collidepoint(mp):
+                    focus = r.center
+                    break
+
+        return (int(focus[0]), int(focus[1]))
 
     def _update_footer(self, page: MenuPage, selected_index: int, *, can_pop: bool) -> None:
         hint = ""
@@ -233,6 +260,7 @@ class MainMenuScene(Scene):
     def _make_main_page(self) -> MenuPage:
         def play() -> None:
             self._toast_message("Good luck. Have fun.")
+            self._bg.poke((self._screen_w * 0.5, self._screen_h * 0.5), strength=0.8, seconds=0.22)
             self._start_fade(
                 SceneResult.switch(
                     GameplayScene(config=self.config, screen_size=self.screen_size)
@@ -420,6 +448,7 @@ class MainMenuScene(Scene):
     def _make_quit_confirm_page(self) -> MenuPage:
         def confirm_quit() -> None:
             self._toast_message("See you next time!")
+            self._bg.poke((self._screen_w * 0.5, self._screen_h * 0.5), strength=0.9, seconds=0.24)
             self._start_fade(SceneResult.quit())
 
         def cancel_quit() -> None:
@@ -499,6 +528,16 @@ class MainMenuScene(Scene):
 
         if self._transition.active:
             self._transition.update(dt)
+
+        # Dynamic Background Reactivity: focus follows selection/hover and
+        # selection changes trigger a small "poke".
+        focus = self._current_focus_pos()
+        self._bg.set_focus(focus, amount=0.42 if not self._settings.reduce_motion else 0.18)
+
+        focus_key = (id(self._stack.page), int(self._input.selected_index))
+        if (not self._transition.active) and focus_key != self._last_focus_key:
+            self._bg.poke(focus, strength=0.55, seconds=0.16)
+            self._last_focus_key = focus_key
 
         self._bg.update(dt, reduce_motion=self._settings.reduce_motion)
 
