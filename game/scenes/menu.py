@@ -44,6 +44,11 @@ class MainMenuScene(Scene):
         self._bg = StarDriftBackground(self.screen_size, seed=seed)
         self._toast: str | None = None
         self._toast_timer = 0.0
+        self._toast_duration = 1.6
+        self._toast_fade_in = 0.08  # Fast fade-in
+        self._toast_fade_out = 0.12  # Fast fade-out when replaced
+        self._toast_alpha = 0.0  # 0.0 to 1.0
+        self._toast_scale = 1.0  # Scale animation
 
         # Dynamic Background Reactivity: track selection/hover to drive subtle pulses.
         self._last_focus_key: tuple[int, int] = (0, -1)  # (page_id, selected_index)
@@ -102,8 +107,15 @@ class MainMenuScene(Scene):
         return taglines[day % len(taglines)]
 
     def _toast_message(self, msg: str, *, seconds: float = 1.6) -> None:
+        if not msg:
+            return
+
+        # Instant replace: new message immediately triggers fade-out of old and starts new.
         self._toast = msg
-        self._toast_timer = float(seconds)
+        self._toast_duration = max(0.5, float(seconds))
+        self._toast_timer = self._toast_fade_in + self._toast_duration + self._toast_fade_out
+        self._toast_alpha = 0.0  # Start faded out, will fade in
+        self._toast_scale = 0.92  # Start slightly smaller
 
     def _thunk(self, msg: str = "Locked — coming soon") -> None:
         self._toast_message(msg)
@@ -517,8 +529,29 @@ class MainMenuScene(Scene):
 
         if self._toast_timer > 0.0:
             self._toast_timer -= dt
+            total = self._toast_fade_in + self._toast_duration + self._toast_fade_out
+            elapsed = total - self._toast_timer
+
+            # Fade in phase
+            if elapsed < self._toast_fade_in:
+                t = elapsed / max(0.001, self._toast_fade_in)
+                self._toast_alpha = t
+                self._toast_scale = 0.92 + 0.08 * t
+            # Hold phase
+            elif elapsed < self._toast_fade_in + self._toast_duration:
+                self._toast_alpha = 1.0
+                self._toast_scale = 1.0
+            # Fade out phase
+            else:
+                fade_elapsed = elapsed - (self._toast_fade_in + self._toast_duration)
+                t = fade_elapsed / max(0.001, self._toast_fade_out)
+                self._toast_alpha = 1.0 - t
+                self._toast_scale = 1.0 - 0.08 * t
+
             if self._toast_timer <= 0.0:
                 self._toast = None
+                self._toast_alpha = 0.0
+                self._toast_scale = 1.0
 
         if self._shake_timer > 0.0:
             self._shake_timer -= dt
@@ -602,17 +635,32 @@ class MainMenuScene(Scene):
                 offset=self._menu_offset(),
             )
 
-        # Toast
-        if self._toast:
+        # Toast with smooth fade/scale animation
+        if self._toast and self._toast_alpha > 0.01:
             toast_surf = self._theme.small_font.render(self._toast, True, self._theme.fg_color)
             pad = 10
-            box = pygame.Rect(0, 0, toast_surf.get_width() + pad * 2, toast_surf.get_height() + pad * 2)
+            base_w = toast_surf.get_width() + pad * 2
+            base_h = toast_surf.get_height() + pad * 2
+
+            # Apply scale
+            scaled_w = int(base_w * self._toast_scale)
+            scaled_h = int(base_h * self._toast_scale)
+            box = pygame.Rect(0, 0, scaled_w, scaled_h)
             box.center = (self._screen_w // 2, int(self._screen_h * 0.18))
-            s = pygame.Surface(box.size, pygame.SRCALPHA)
-            s.fill((255, 255, 255, 210 if not self._settings.high_contrast else 240))
-            pygame.draw.rect(s, (0, 0, 0, 70), s.get_rect(), width=2, border_radius=12)
-            screen.blit(s, box.topleft)
-            screen.blit(toast_surf, (box.x + pad, box.y + pad))
+
+            # Create scaled background
+            base_surf = pygame.Surface((base_w, base_h), pygame.SRCALPHA)
+            bg_alpha = int((210 if not self._settings.high_contrast else 240) * self._toast_alpha)
+            base_surf.fill((255, 255, 255, bg_alpha))
+            border_alpha = int(70 * self._toast_alpha)
+            pygame.draw.rect(base_surf, (0, 0, 0, border_alpha), base_surf.get_rect(), width=2, border_radius=12)
+            base_surf.blit(toast_surf, (pad, pad))
+
+            # Scale and apply overall alpha
+            if scaled_w > 0 and scaled_h > 0:
+                scaled_surf = pygame.transform.smoothscale(base_surf, (scaled_w, scaled_h))
+                scaled_surf.set_alpha(int(255 * self._toast_alpha))
+                screen.blit(scaled_surf, box.topleft)
 
         # Fade overlay
         if self._fade_alpha > 0:
