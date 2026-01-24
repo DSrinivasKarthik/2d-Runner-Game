@@ -740,7 +740,7 @@ class MainMenuScene(Scene):
                 name_font = self._theme.item_font
                 gap = 28
                 margin = 90
-                color = (220, 220, 220)  # Bright white
+                color = (0, 0, 0)  # Default black
 
             # Draw role
             if role:
