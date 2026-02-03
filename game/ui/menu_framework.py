@@ -195,6 +195,8 @@ class MenuView:
         self._theme = theme
         self._screen_w, self._screen_h = screen_size
 
+        self._panel_padding = int(panel_padding)
+
         panel_w = min(panel_width, self._screen_w - 80)
         panel_h = min(460, self._screen_h - 80)
         panel_x = (self._screen_w - panel_w) // 2
@@ -212,38 +214,95 @@ class MenuView:
 
         self._item_rects: List[pygame.Rect] = []
         self._computed_item_gap: int = self._layout.item_gap
+        self._row_h: int = max(36, int(self._theme.item_font.get_linesize() + 10))
+        self._scroll_y: int = 0
         self._offset: tuple[int, int] = (0, 0)
 
+    def _ellipsize(self, font: pygame.font.Font, text: str, max_w: int) -> str:
+        if max_w <= 0:
+            return ""
+        if not text:
+            return ""
+        if font.size(text)[0] <= max_w:
+            return text
+
+        ell = "…"
+        ell_w = font.size(ell)[0]
+        if ell_w >= max_w:
+            return ""
+
+        lo, hi = 0, len(text)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            candidate = text[:mid] + ell
+            if font.size(candidate)[0] <= max_w:
+                lo = mid + 1
+            else:
+                hi = mid
+        cut = max(0, lo - 1)
+        return text[:cut] + ell
+
     def _compute_item_gap(self, n_items: int) -> int:
-        # Keep items from overlapping the footer by compressing spacing when needed.
-        # This makes pages with many items (e.g., Options) readable without resizing.
+        # Font-driven row size.
+        self._row_h = max(36, int(self._theme.item_font.get_linesize() + 10))
+
         if n_items <= 1:
-            return self._layout.item_gap
+            return 0
 
         start_y = self._layout.item_start[1]
         footer_y = self._layout.footer_pos[1]
-        item_height = 44
-        # Space available for the list area (leave a little breathing room).
-        available = max(0, (footer_y - 10) - start_y)
-        # Total height is item_height + (n-1)*gap.
-        max_gap = (available - item_height) // max(1, (n_items - 1))
-        # Clamp: don't get too tight, don't exceed the designed gap.
-        return int(max(38, min(self._layout.item_gap, max_gap)))
+
+        # List area height (leave breathing room above footer).
+        available = max(0, (footer_y - 14) - start_y)
+
+        default_gap = 14
+        min_gap = 6
+        needed_default = n_items * self._row_h + (n_items - 1) * default_gap
+        if needed_default <= available:
+            return default_gap
+
+        spare = available - n_items * self._row_h
+        gap = spare // max(1, (n_items - 1))
+        return int(max(min_gap, min(default_gap, gap)))
 
     @property
     def item_rects(self) -> Sequence[pygame.Rect]:
         return self._item_rects
 
-    def compute_item_rects(self, page: MenuPage, *, offset: tuple[int, int] = (0, 0)) -> None:
+    def compute_item_rects(
+        self,
+        page: MenuPage,
+        *,
+        selected_index: int = 0,
+        offset: tuple[int, int] = (0, 0),
+    ) -> None:
         self._item_rects = []
         self._offset = (int(offset[0]), int(offset[1]))
         self._computed_item_gap = self._compute_item_gap(len(page.items))
-        x, y = self._layout.item_start
-        x += self._offset[0]
-        y += self._offset[1]
-        for _ in page.items:
-            self._item_rects.append(pygame.Rect(x - 8, y - 6, self._layout.panel_rect.w - 40, 44))
-            y += self._computed_item_gap
+
+        pad = int(self._layout.title_pos[0] - self._layout.panel_rect.x)
+        inner_left = self._layout.panel_rect.x + pad + self._offset[0]
+        inner_w = self._layout.panel_rect.w - pad * 2
+
+        list_top = self._layout.item_start[1] + self._offset[1]
+        list_bottom = self._layout.footer_pos[1] - 14 + self._offset[1]
+        list_h = max(0, list_bottom - list_top)
+
+        n = len(page.items)
+        if n <= 0:
+            self._scroll_y = 0
+            return
+
+        content_h = n * self._row_h + (n - 1) * self._computed_item_gap
+        max_scroll = max(0, content_h - list_h)
+
+        idx = max(0, min(int(selected_index), n - 1))
+        sel_center = idx * (self._row_h + self._computed_item_gap) + self._row_h // 2
+        self._scroll_y = int(max(0, min(max_scroll, sel_center - list_h * 0.5)))
+
+        for i in range(n):
+            y = list_top + i * (self._row_h + self._computed_item_gap) - self._scroll_y
+            self._item_rects.append(pygame.Rect(inner_left, y, inner_w, self._row_h))
 
     def _draw_lock_icon(self, screen: pygame.Surface, x: int, y: int, *, color: tuple[int, int, int]) -> None:
         # Simple vector lock icon: body + shackle.
@@ -284,10 +343,17 @@ class MenuView:
             )
 
         # Items
-        self.compute_item_rects(page, offset=self._offset)
-        x, y = self._layout.item_start
-        x += self._offset[0]
-        y += self._offset[1]
+        self.compute_item_rects(page, selected_index=selected_index, offset=self._offset)
+
+        pad = int(self._layout.title_pos[0] - self._layout.panel_rect.x)
+        list_left = self._layout.panel_rect.x + pad + self._offset[0]
+        list_w = self._layout.panel_rect.w - pad * 2
+        list_top = self._layout.item_start[1] + self._offset[1]
+        list_bottom = self._layout.footer_pos[1] - 14 + self._offset[1]
+        list_rect = pygame.Rect(list_left, list_top, list_w, max(0, list_bottom - list_top))
+
+        prev_clip = screen.get_clip()
+        screen.set_clip(list_rect)
         for i, item in enumerate(page.items):
             is_selected = i == selected_index
             enabled = item.enabled
@@ -308,24 +374,31 @@ class MenuView:
                 pygame.draw.rect(screen, (*self._theme.accent_color, 90), r, width=2, border_radius=10)
 
                 # Little marker
-                marker_x = x - 18
-                marker_y = y + 14 + int(2 * pulse)
+                marker_x = r.x + 12
+                marker_y = r.centery + int(1 * pulse)
                 pygame.draw.circle(screen, self._theme.accent_color, (marker_x, marker_y), 5)
 
-            label = self._theme.item_font.render(item.label, True, label_color)
-            screen.blit(label, (x, y))
+            r = self._item_rects[i]
 
-            value = item.value_text()
+            right_x = self._layout.item_value_x + self._offset[0]
+            label_x = r.x + 20
+            label_y = r.y + (r.h - self._theme.item_font.get_height()) // 2
+
+            # Reserve space on the right for value or badge so the label can't overlap.
+            reserved_right = 0
+            value = item.value_text() or ""
+            value_surf = None
             if value:
-                value_surf = self._theme.item_font.render(value, True, value_color)
-                vx = self._layout.item_value_x - value_surf.get_width()
-                screen.blit(value_surf, (vx + self._offset[0], y))
+                value_fit = self._ellipsize(self._theme.item_font, value, max_w=int(r.w * 0.35))
+                value_surf = self._theme.item_font.render(value_fit, True, value_color)
+                reserved_right = max(reserved_right, value_surf.get_width() + 8)
 
-            # Locked + badge treatment
             badge = item.badge
             if item.locked and not badge:
                 badge = "Coming soon"
 
+            badge_box = None
+            badge_surf = None
             if item.locked or badge:
                 badge_text = badge
                 badge_surf = self._theme.small_font.render(badge_text, True, self._theme.fg_color)
@@ -333,29 +406,44 @@ class MenuView:
                 pad_y = 5
                 bw = badge_surf.get_width() + pad_x * 2
                 bh = badge_surf.get_height() + pad_y * 2
-
-                right_x = self._layout.item_value_x + self._offset[0]
                 bx = right_x - bw
-                by = y + 10
+                by = r.y + (r.h - bh) // 2
                 badge_box = pygame.Rect(bx, by, bw, bh)
+                reserved_right = max(reserved_right, bw + 12 + (24 if item.locked else 0))
 
+            max_label_w = max(0, (right_x - reserved_right) - label_x)
+            label_fit = self._ellipsize(self._theme.item_font, item.label, max_w=max_label_w)
+            label = self._theme.item_font.render(label_fit, True, label_color)
+            screen.blit(label, (label_x, label_y))
+
+            if value_surf is not None and badge_box is None:
+                vx = right_x - value_surf.get_width()
+                vy = r.y + (r.h - value_surf.get_height()) // 2
+                screen.blit(value_surf, (vx, vy))
+
+            # Locked + badge treatment
+            if badge_box is not None and badge_surf is not None:
                 bsurf = pygame.Surface(badge_box.size, pygame.SRCALPHA)
                 base = self._theme.accent_color if not item.locked else (90, 90, 90)
                 alpha = 70 if not is_selected else int(90 + 30 * pulse)
                 bsurf.fill((*base, alpha))
                 pygame.draw.rect(bsurf, (0, 0, 0, 60), bsurf.get_rect(), width=2, border_radius=999)
                 screen.blit(bsurf, badge_box.topleft)
+                pad_x = 10
+                pad_y = 5
                 screen.blit(badge_surf, (badge_box.x + pad_x, badge_box.y + pad_y))
-
                 if item.locked:
-                    self._draw_lock_icon(screen, badge_box.x - 24, y + 10, color=self._theme.muted_color)
+                    self._draw_lock_icon(screen, badge_box.x - 24, badge_box.y, color=self._theme.muted_color)
 
-            y += self._computed_item_gap
+        screen.set_clip(prev_clip)
 
         # Footer
         footer_text = page.footer
         if footer_text:
-            footer = self._theme.small_font.render(footer_text, True, self._theme.muted_color)
+            pad = int(self._layout.title_pos[0] - self._layout.panel_rect.x)
+            max_footer_w = max(0, self._layout.panel_rect.w - pad * 2)
+            footer_fit = self._ellipsize(self._theme.small_font, footer_text, max_w=max_footer_w)
+            footer = self._theme.small_font.render(footer_fit, True, self._theme.muted_color)
             screen.blit(
                 footer,
                 (

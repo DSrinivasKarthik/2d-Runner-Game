@@ -147,7 +147,7 @@ class MainMenuScene(Scene):
         # If mouse is over an item, use hover as focus.
         if pygame.mouse.get_focused() and page.items:
             mp = pygame.mouse.get_pos()
-            self._view.compute_item_rects(page, offset=self._menu_offset())
+            self._view.compute_item_rects(page, selected_index=self._input.selected_index, offset=self._menu_offset())
             for r in self._view.item_rects:
                 if r.collidepoint(mp):
                     focus = r.center
@@ -202,7 +202,7 @@ class MainMenuScene(Scene):
     def _selected_item_center(self, page: MenuPage, selected_index: int) -> tuple[int, int]:
         if not page.items:
             return (self._screen_w // 2, self._screen_h // 2)
-        self._view.compute_item_rects(page, offset=(0, 0))
+        self._view.compute_item_rects(page, selected_index=selected_index, offset=(0, 0))
         idx = max(0, min(int(selected_index), len(self._view.item_rects) - 1))
         return self._view.item_rects[idx].center
 
@@ -343,6 +343,14 @@ class MainMenuScene(Scene):
             self._settings.show_fps = bool(v)
             self._persist_settings()
 
+        def set_crt_enabled(v: bool) -> None:
+            self._settings.crt_enabled = bool(v)
+            self._persist_settings()
+
+        def set_crt_intensity(v: float) -> None:
+            self._settings.crt_intensity = max(0.0, min(1.0, float(v)))
+            self._persist_settings()
+
         def set_fullscreen(v: bool) -> None:
             self._settings.fullscreen = bool(v)
             self._persist_settings()
@@ -382,6 +390,19 @@ class MainMenuScene(Scene):
                     get_value=lambda: self._settings.show_fps,
                     set_value=set_show_fps,
                     hint="Developer-ish overlay (future)",
+                ),
+                ToggleItem(
+                    "CRT Filter",
+                    get_value=lambda: self._settings.crt_enabled,
+                    set_value=set_crt_enabled,
+                    hint="Scanlines + vignette + a little noise",
+                ),
+                SliderItem(
+                    "CRT Intensity",
+                    get_value=lambda: self._settings.crt_intensity,
+                    set_value=set_crt_intensity,
+                    step=0.05,
+                    hint="Dial in the nostalgia",
                 ),
                 ToggleItem(
                     "Fullscreen",

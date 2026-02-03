@@ -16,6 +16,10 @@ class UserSettings:
     high_contrast: bool = False
     show_fps: bool = False
 
+    # Retro display effects
+    crt_enabled: bool = True
+    crt_intensity: float = 0.65
+
     # Display (apply-on-restart unless app loop supports live switching)
     fullscreen: bool = False
 
@@ -41,6 +45,8 @@ def load_user_settings(path: str | Path = "user_settings.json") -> UserSettings:
         reduce_motion=bool(raw.get("reduce_motion", False)),
         high_contrast=bool(raw.get("high_contrast", False)),
         show_fps=bool(raw.get("show_fps", False)),
+        crt_enabled=bool(raw.get("crt_enabled", True)),
+        crt_intensity=_clamp01(raw.get("crt_intensity", 0.65)),
         fullscreen=bool(raw.get("fullscreen", False)),
     )
 
@@ -51,6 +57,7 @@ def save_user_settings(settings: UserSettings, path: str | Path = "user_settings
 
     payload = asdict(settings)
     payload["master_volume"] = _clamp01(payload.get("master_volume", 0.8))
+    payload["crt_intensity"] = _clamp01(payload.get("crt_intensity", 0.65))
 
     with tmp_path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=4)

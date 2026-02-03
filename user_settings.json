@@ -3,5 +3,7 @@
     "reduce_motion": false,
     "high_contrast": true,
     "show_fps": false,
+    "crt_enabled": true,
+    "crt_intensity": 0.6499999999999997,
     "fullscreen": false
 }
