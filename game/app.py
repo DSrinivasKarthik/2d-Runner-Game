@@ -93,7 +93,15 @@ def run() -> None:
                 new_mtime = settings_path.stat().st_mtime
                 if new_mtime != settings_mtime:
                     settings_mtime = new_mtime
-                    settings = load_user_settings(settings_path)
+                    updated = load_user_settings(settings_path)
+                    if updated.fullscreen != settings.fullscreen:
+                        settings = updated
+                        screen, window_size, scale_to_window = _create_display(settings)
+                        pygame.display.set_caption("2D Runner Platform Game")
+                        crt = CRTEffect(window_size if scale_to_window else (SCREEN_WIDTH, SCREEN_HEIGHT))
+                        scaled_frame = pygame.Surface(window_size) if scale_to_window else None
+                    else:
+                        settings = updated
             except Exception:
                 # Missing/locked file shouldn't break the game loop.
                 pass
