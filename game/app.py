@@ -28,6 +28,29 @@ def _create_display(settings: UserSettings) -> tuple[pygame.Surface, tuple[int, 
     return screen, window_size, scale_to_window
 
 
+def _draw_fps_overlay(
+    screen: pygame.Surface,
+    font: pygame.font.Font,
+    fps: float,
+    *,
+    high_contrast: bool,
+) -> None:
+    label = f"{fps:5.1f} FPS"
+    text_color = (0, 0, 0) if high_contrast else (255, 255, 255)
+    box_color = (255, 255, 255, 235) if high_contrast else (0, 0, 0, 165)
+    border_color = (0, 0, 0, 110) if high_contrast else (255, 255, 255, 70)
+
+    text = font.render(label, True, text_color)
+    pad_x = 8
+    pad_y = 4
+    box = pygame.Surface((text.get_width() + pad_x * 2, text.get_height() + pad_y * 2), pygame.SRCALPHA)
+    box.fill(box_color)
+    pygame.draw.rect(box, border_color, box.get_rect(), width=1, border_radius=6)
+
+    screen.blit(box, (10, 10))
+    screen.blit(text, (10 + pad_x, 10 + pad_y))
+
+
 def run() -> None:
     pygame.init()
 
@@ -49,6 +72,7 @@ def run() -> None:
     scaled_frame = pygame.Surface(window_size) if scale_to_window else None
 
     clock = pygame.time.Clock()
+    fps_font = pygame.font.SysFont(None, 22)
 
     manager = SceneManager(
         MainMenuScene(
@@ -98,6 +122,14 @@ def run() -> None:
             crt.apply(source, screen, intensity=settings.crt_intensity, time_s=now)
         else:
             screen.blit(source, (0, 0))
+
+        if settings.show_fps:
+            _draw_fps_overlay(
+                screen,
+                fps_font,
+                clock.get_fps(),
+                high_contrast=settings.high_contrast,
+            )
 
         pygame.display.flip()
 
