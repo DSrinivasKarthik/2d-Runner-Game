@@ -198,25 +198,27 @@ class MenuView:
         self._panel_padding = int(panel_padding)
 
         panel_w = min(panel_width, self._screen_w - 80)
-        panel_h = min(460, self._screen_h - 80)
+        panel_h = min(500, self._screen_h - 60)
         panel_x = (self._screen_w - panel_w) // 2
         panel_y = (self._screen_h - panel_h) // 2
 
         self._layout = MenuLayout(
             panel_rect=pygame.Rect(panel_x, panel_y, panel_w, panel_h),
             title_pos=(panel_x + panel_padding, panel_y + panel_padding),
-            subtitle_pos=(panel_x + panel_padding, panel_y + panel_padding + 54),
-            item_start=(panel_x + panel_padding, panel_y + panel_padding + 110),
+            subtitle_pos=(panel_x + panel_padding, panel_y + panel_padding + 48),
+            item_start=(panel_x + panel_padding, panel_y + panel_padding + 92),
             item_gap=52,
             item_value_x=panel_x + panel_w - panel_padding,
-            footer_pos=(panel_x + panel_padding, panel_y + panel_h - panel_padding - 22),
+            footer_pos=(panel_x + panel_padding, panel_y + panel_h - panel_padding - 18),
         )
 
         self._item_rects: List[pygame.Rect] = []
         self._computed_item_gap: int = self._layout.item_gap
-        self._row_h: int = max(36, int(self._theme.item_font.get_linesize() + 10))
+        self._row_h: int = max(34, int(self._theme.item_font.get_height() + 2))
         self._scroll_y: int = 0
         self._offset: tuple[int, int] = (0, 0)
+        self._show_scroll_up: bool = False
+        self._show_scroll_down: bool = False
 
     def _ellipsize(self, font: pygame.font.Font, text: str, max_w: int) -> str:
         if max_w <= 0:
@@ -244,7 +246,7 @@ class MenuView:
 
     def _compute_item_gap(self, n_items: int) -> int:
         # Font-driven row size.
-        self._row_h = max(36, int(self._theme.item_font.get_linesize() + 10))
+        self._row_h = max(34, int(self._theme.item_font.get_height() + 2))
 
         if n_items <= 1:
             return 0
@@ -255,8 +257,8 @@ class MenuView:
         # List area height (leave breathing room above footer).
         available = max(0, (footer_y - 14) - start_y)
 
-        default_gap = 14
-        min_gap = 6
+        default_gap = 10
+        min_gap = 2
         needed_default = n_items * self._row_h + (n_items - 1) * default_gap
         if needed_default <= available:
             return default_gap
@@ -291,6 +293,8 @@ class MenuView:
         n = len(page.items)
         if n <= 0:
             self._scroll_y = 0
+            self._show_scroll_up = False
+            self._show_scroll_down = False
             return
 
         content_h = n * self._row_h + (n - 1) * self._computed_item_gap
@@ -299,10 +303,35 @@ class MenuView:
         idx = max(0, min(int(selected_index), n - 1))
         sel_center = idx * (self._row_h + self._computed_item_gap) + self._row_h // 2
         self._scroll_y = int(max(0, min(max_scroll, sel_center - list_h * 0.5)))
+        self._show_scroll_up = self._scroll_y > 0
+        self._show_scroll_down = self._scroll_y < max_scroll
 
         for i in range(n):
             y = list_top + i * (self._row_h + self._computed_item_gap) - self._scroll_y
             self._item_rects.append(pygame.Rect(inner_left, y, inner_w, self._row_h))
+
+    def _draw_scroll_indicator(
+        self,
+        screen: pygame.Surface,
+        *,
+        center: tuple[int, int],
+        direction: str,
+        pulse: float,
+    ) -> None:
+        w = 18
+        h = 12
+        surf = pygame.Surface((w, h), pygame.SRCALPHA)
+
+        alpha = int(95 + (75 * pulse))
+        color = (*self._theme.accent_color, max(0, min(255, alpha)))
+
+        if direction == "up":
+            points = [(w // 2, 1), (2, h - 2), (w - 2, h - 2)]
+        else:
+            points = [(2, 2), (w - 2, 2), (w // 2, h - 1)]
+
+        pygame.draw.polygon(surf, color, points)
+        screen.blit(surf, (center[0] - (w // 2), center[1] - (h // 2)))
 
     def _draw_lock_icon(self, screen: pygame.Surface, x: int, y: int, *, color: tuple[int, int, int]) -> None:
         # Simple vector lock icon: body + shackle.
@@ -436,6 +465,21 @@ class MenuView:
                     self._draw_lock_icon(screen, badge_box.x - 24, badge_box.y, color=self._theme.muted_color)
 
         screen.set_clip(prev_clip)
+
+        if self._show_scroll_up:
+            self._draw_scroll_indicator(
+                screen,
+                center=(list_rect.right - 12, list_rect.top + 10),
+                direction="up",
+                pulse=pulse,
+            )
+        if self._show_scroll_down:
+            self._draw_scroll_indicator(
+                screen,
+                center=(list_rect.right - 12, list_rect.bottom - 10),
+                direction="down",
+                pulse=pulse,
+            )
 
         # Footer
         footer_text = page.footer
