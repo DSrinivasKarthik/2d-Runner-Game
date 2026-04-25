@@ -36,7 +36,8 @@ class Player(pygame.sprite.Sprite):
         self.pos = pygame.Vector2(self.rect.x, self.rect.y)
         self.change_x = 0.0
         self.change_y = 0.0
-        self.on_ground = False
+        ground_top = self._screen_h - config.platform_height
+        self.on_ground = self.rect.bottom >= ground_top
 
         self.move_left = False
         self.move_right = False
