@@ -237,8 +237,10 @@ class GameplayScene(Scene):
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                from game.scenes.menu import MainMenuScene
+
                 self._pending = SceneResult.switch(
-                    __import__("game.scenes.menu", fromlist=["MainMenuScene"]).MainMenuScene(
+                    MainMenuScene(
                         config=self.config,
                         screen_size=self.screen_size,
                     )
