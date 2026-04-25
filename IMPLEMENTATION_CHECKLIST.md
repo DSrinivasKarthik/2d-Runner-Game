@@ -18,7 +18,7 @@ This checklist converts the full audit into an execution plan with strict order,
 
 ## Phase 1 - Critical Runtime Reliability
 
-- [ ] Fix legacy entrypoint crash in runnergame.py
+- [x] Fix legacy entrypoint crash in runnergame.py
   - Priority: P0
   - Problem:
     - File mixes a forwarder and stale inline game code; importing can crash.
@@ -31,7 +31,7 @@ This checklist converts the full audit into an execution plan with strict order,
 
 ## Phase 2 - Core Gameplay Correctness
 
-- [ ] Make gameplay movement and physics dt-based
+- [x] Make gameplay movement and physics dt-based
   - Priority: P1
   - Problem:
     - update(dt) currently ignores dt for movement/scroll/physics.
@@ -42,7 +42,7 @@ This checklist converts the full audit into an execution plan with strict order,
     - Gameplay speed feels consistent when FPS changes.
     - No clipping through platforms from time-step changes.
 
-- [ ] Fix first-jump responsiveness at scene start
+- [x] Fix first-jump responsiveness at scene start
   - Priority: P1
   - Problem:
     - First jump input can be dropped before ground state is established.
@@ -53,7 +53,7 @@ This checklist converts the full audit into an execution plan with strict order,
 
 ## Phase 3 - UI Functionality + Accessibility
 
-- [ ] Implement Show FPS option end-to-end
+- [x] Implement Show FPS option end-to-end
   - Priority: P2
   - Problem:
     - Setting exists but has no visible output.
@@ -63,7 +63,7 @@ This checklist converts the full audit into an execution plan with strict order,
   - Acceptance:
     - Toggle immediately shows/hides FPS readout.
 
-- [ ] Fix menu list clipping and improve scroll feedback
+- [x] Fix menu list clipping and improve scroll feedback
   - Priority: P1
   - Problem:
     - Options content clips near top/bottom in some selection states.
@@ -74,7 +74,7 @@ This checklist converts the full audit into an execution plan with strict order,
     - All menu items remain reachable and readable.
     - No cropped text in top/bottom edge states.
 
-- [ ] Fix credits interaction and visual overlap
+- [x] Fix credits interaction and visual overlap
   - Priority: P1
   - Problem:
     - Credits mouse handling bypasses normal menu handling.
@@ -89,7 +89,7 @@ This checklist converts the full audit into an execution plan with strict order,
 
 ## Phase 4 - Documentation and Alignment
 
-- [ ] Update README command formatting and controls clarity
+- [x] Update README command formatting and controls clarity
   - Priority: P2
   - Scope:
     - Replace invalid quote-style code snippets with fenced code blocks.
@@ -98,7 +98,7 @@ This checklist converts the full audit into an execution plan with strict order,
   - Acceptance:
     - New users can run game by following README exactly.
 
-- [ ] Document currently unused config fields (or wire them up)
+- [x] Document currently unused config fields (or wire them up)
   - Priority: P3
   - Scope:
     - Add short note for currently unused fields (background image / obstacle data),
@@ -108,14 +108,14 @@ This checklist converts the full audit into an execution plan with strict order,
 
 ## Phase 5 - Regression and Visual QA
 
-- [ ] Re-run scripted E2E flow
+- [x] Re-run scripted E2E flow
   - Priority: P1
   - Scope:
     - Main menu -> options/extras/credits -> gameplay -> back -> quit.
   - Acceptance:
     - No crashes, no stuck scene transitions.
 
-- [ ] Refresh screenshots for all major views and compare
+- [x] Refresh screenshots for all major views and compare
   - Priority: P1
   - Required views:
     - Main menu
@@ -145,3 +145,15 @@ After each commit:
 1. Run focused smoke checks for changed area.
 2. Push commit to `origin gameplay-mechanics`.
 3. Continue to next item.
+
+## Completion Log (2026-04-25)
+
+1. app: fix fullscreen frame scaling
+2. docs: add detailed implementation checklist
+3. fix: clean legacy runnergame wrapper
+4. fix: run gameplay with fixed-step timing
+5. fix: allow immediate jump on spawn
+6. feat: add in-game FPS overlay
+7. fix: improve menu list readability
+8. fix: clean up credits view and input flow
+9. docs: align README with current gameplay
