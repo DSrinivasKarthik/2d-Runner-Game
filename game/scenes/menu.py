@@ -535,7 +535,6 @@ class MainMenuScene(Scene):
         if self._stack.page.title == "Credits" and event.type == pygame.MOUSEBUTTONDOWN:
             mx, my = pygame.mouse.get_pos()
             self._handle_credits_click(mx, my)
-            return
 
         # Ensure mouse hit-boxes are computed before input uses them.
         self._view.compute_item_rects(self._stack.page, offset=self._menu_offset())
@@ -703,6 +702,7 @@ class MainMenuScene(Scene):
     def _draw_credits(self, screen: pygame.Surface) -> None:
         cx = self._screen_w // 2
         cy = self._screen_h // 2
+        high_contrast = self._settings.high_contrast
         
         # Dark vignette overlay for better text readability
         vignette = pygame.Surface((self._screen_w, self._screen_h), pygame.SRCALPHA)
@@ -737,31 +737,31 @@ class MainMenuScene(Scene):
                 name_font = self._theme.title_font
                 gap = 60
                 margin = 120
-                color = (255, 215, 0)  # Gold for lead
+                color = self._theme.fg_color if high_contrast else (255, 215, 0)
             elif kind == "heart":
                 role_font = self._theme.small_font
                 name_font = self._theme.title_font
                 gap = 28
                 margin = 90
-                color = (255, 100, 150)  # Pink/heart color
+                color = self._theme.fg_color if high_contrast else (255, 100, 150)
             elif kind == "stat":
                 role_font = self._theme.small_font
                 name_font = self._theme.small_font
                 gap = 20
                 margin = 70
-                color = (150, 150, 255)  # Soft purple for stats
+                color = self._theme.muted_color if high_contrast else (150, 150, 255)
             elif kind == "footer":
                 role_font = self._theme.small_font
                 name_font = self._theme.item_font
                 gap = 20
                 margin = 180
-                color = self._theme.accent_color
+                color = self._theme.fg_color if high_contrast else self._theme.accent_color
             else:
                 role_font = self._theme.small_font
                 name_font = self._theme.item_font
                 gap = 28
                 margin = 90
-                color = (0, 0, 0)  # Default black
+                color = self._theme.fg_color if high_contrast else (0, 0, 0)
 
             # Draw role
             if role:
@@ -787,7 +787,7 @@ class MainMenuScene(Scene):
                 nx = cx - n_surf.get_width() // 2
                 
                 # Sparkle effect on lead credit
-                if kind == "lead" and alpha > 200:
+                if (not high_contrast) and kind == "lead" and alpha > 200:
                     for _ in range(3):
                         sparkle_x = nx + random.randint(-40, n_surf.get_width() + 40)
                         sparkle_y = y_off + random.randint(-10, n_surf.get_height() + 10)
@@ -824,6 +824,8 @@ class MainMenuScene(Scene):
         screen.blit(hint, (cx - hint.get_width() // 2, self._screen_h - 40))
 
     def draw(self, screen: pygame.Surface) -> None:
+        page = self._stack.page
+
         # Background
         self._bg.draw(
             screen,
@@ -832,28 +834,27 @@ class MainMenuScene(Scene):
             high_contrast=self._settings.high_contrast,
         )
 
-        # Big title above the panel (a bit of charm)
-        title_text = wobble_text(
-            self._theme.title_font,
-            "2D Runner",
-            self._theme.fg_color,
-            t=self._t,
-            strength=0.0 if self._settings.reduce_motion else 2.2,
-        )
-        tx = (self._screen_w - title_text.get_width()) // 2
-        ty = max(20, (self._screen_h // 2) - 320)
+        if page.title != "Credits":
+            # Big title above the panel (a bit of charm)
+            title_text = wobble_text(
+                self._theme.title_font,
+                "2D Runner",
+                self._theme.fg_color,
+                t=self._t,
+                strength=0.0 if self._settings.reduce_motion else 2.2,
+            )
+            tx = (self._screen_w - title_text.get_width()) // 2
+            ty = max(20, (self._screen_h // 2) - 320)
 
-        shadow = pygame.Surface(title_text.get_size(), pygame.SRCALPHA)
-        shadow.blit(title_text, (0, 0))
-        shadow.fill((0, 0, 0, 60), special_flags=pygame.BLEND_RGBA_MULT)
-        screen.blit(shadow, (tx + 2, ty + 3))
-        screen.blit(title_text, (tx, ty))
+            shadow = pygame.Surface(title_text.get_size(), pygame.SRCALPHA)
+            shadow.blit(title_text, (0, 0))
+            shadow.fill((0, 0, 0, 60), special_flags=pygame.BLEND_RGBA_MULT)
+            screen.blit(shadow, (tx + 2, ty + 3))
+            screen.blit(title_text, (tx, ty))
 
-        # Tagline
-        tagline = self._theme.small_font.render(self._tagline, True, self._theme.muted_color)
-        screen.blit(tagline, ((self._screen_w - tagline.get_width()) // 2, ty + title_text.get_height() + 8))
-
-        page = self._stack.page
+            # Tagline
+            tagline = self._theme.small_font.render(self._tagline, True, self._theme.muted_color)
+            screen.blit(tagline, ((self._screen_w - tagline.get_width()) // 2, ty + title_text.get_height() + 8))
 
         if self._transition.active and not self._settings.reduce_motion:
             # Transition already contains fully rendered from/to frames.
