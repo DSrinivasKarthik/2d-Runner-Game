@@ -51,6 +51,15 @@ This checklist converts the full audit into an execution plan with strict order,
   - Acceptance:
     - Pressing jump right after entering gameplay triggers jump reliably.
 
+- [x] Replace dynamic scene import in gameplay transition
+  - Priority: P2
+  - Problem:
+    - Dynamic `__import__` in gameplay scene switching is brittle.
+  - Scope:
+    - Use an explicit local import inside the ESC transition branch.
+  - Acceptance:
+    - ESC from gameplay still transitions to main menu correctly.
+
 ## Phase 3 - UI Functionality + Accessibility
 
 - [x] Implement Show FPS option end-to-end
@@ -62,6 +71,15 @@ This checklist converts the full audit into an execution plan with strict order,
     - Keep overlay readable in normal and high-contrast modes.
   - Acceptance:
     - Toggle immediately shows/hides FPS readout.
+
+- [x] Apply fullscreen setting changes live while running
+  - Priority: P2
+  - Problem:
+    - Fullscreen setting previously required restart despite hot-reload loop.
+  - Scope:
+    - Rebuild display/render targets when fullscreen setting changes.
+  - Acceptance:
+    - Toggling fullscreen in settings applies without restarting app.
 
 - [x] Fix menu list clipping and improve scroll feedback
   - Priority: P1
@@ -157,3 +175,5 @@ After each commit:
 7. fix: improve menu list readability
 8. fix: clean up credits view and input flow
 9. docs: align README with current gameplay
+10. refactor: replace dynamic menu import
+11. fix: apply fullscreen setting live
