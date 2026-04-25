@@ -17,6 +17,17 @@ SCREEN_HEIGHT = 600
 FPS = 60
 
 
+def _create_display(settings: UserSettings) -> tuple[pygame.Surface, tuple[int, int], bool]:
+    if settings.fullscreen:
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    else:
+        screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+
+    window_size = screen.get_size()
+    scale_to_window = window_size != (SCREEN_WIDTH, SCREEN_HEIGHT)
+    return screen, window_size, scale_to_window
+
+
 def run() -> None:
     pygame.init()
 
@@ -30,12 +41,12 @@ def run() -> None:
         settings_mtime = 0.0
     settings_poll_at = 0.0
 
-    flags = pygame.FULLSCREEN if settings.fullscreen else 0
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
+    screen, window_size, scale_to_window = _create_display(settings)
     pygame.display.set_caption("2D Runner Platform Game")
 
     frame = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-    crt = CRTEffect((SCREEN_WIDTH, SCREEN_HEIGHT))
+    crt = CRTEffect(window_size if scale_to_window else (SCREEN_WIDTH, SCREEN_HEIGHT))
+    scaled_frame = pygame.Surface(window_size) if scale_to_window else None
 
     clock = pygame.time.Clock()
 
@@ -77,10 +88,16 @@ def run() -> None:
 
         manager.scene.draw(frame)
 
-        if settings.crt_enabled and settings.crt_intensity > 0.0:
-            crt.apply(frame, screen, intensity=settings.crt_intensity, time_s=now)
+        if scale_to_window and scaled_frame is not None:
+            pygame.transform.scale(frame, window_size, scaled_frame)
+            source = scaled_frame
         else:
-            screen.blit(frame, (0, 0))
+            source = frame
+
+        if settings.crt_enabled and settings.crt_intensity > 0.0:
+            crt.apply(source, screen, intensity=settings.crt_intensity, time_s=now)
+        else:
+            screen.blit(source, (0, 0))
 
         pygame.display.flip()
 
