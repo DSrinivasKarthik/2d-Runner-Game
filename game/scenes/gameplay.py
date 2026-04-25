@@ -9,6 +9,11 @@ from game.scene_manager import Scene, SceneResult
 from game.settings import GameConfig
 
 
+FIXED_STEP = 1.0 / 60.0
+MAX_FRAME_DT = 0.25
+MAX_SIM_STEPS = 5
+
+
 @dataclass
 class World:
     platforms: pygame.sprite.Group
@@ -45,7 +50,7 @@ class Player(pygame.sprite.Sprite):
         # Grounded state is recomputed every frame from collisions
         self.on_ground = False
 
-        # Movement tuning
+        # Movement tuning (legacy per-step values; scene runs at fixed 60 Hz).
         max_speed = 8.0
         accel = 0.5
         friction = 0.5
@@ -191,6 +196,7 @@ class GameplayScene(Scene):
         self._scroll_speed = 2.5
         self._auto_run = True
         self._runner_x = 160
+        self._sim_accumulator = 0.0
 
         self.all_sprites = pygame.sprite.Group()
         self.platforms = pygame.sprite.Group()
@@ -249,7 +255,7 @@ class GameplayScene(Scene):
             elif event.key == pygame.K_RIGHT:
                 self.player.move_right = False
 
-    def update(self, dt: float):
+    def _step_simulation(self) -> None:
         # Move platforms (endless scroll)
         self.platforms.update(self._scroll_speed)
 
@@ -285,6 +291,20 @@ class GameplayScene(Scene):
                     self.platforms.add(new_plat)
                     self.all_sprites.add(new_plat)
                     furthest = new_plat
+
+    def update(self, dt: float):
+        frame_dt = max(0.0, min(float(dt), MAX_FRAME_DT))
+        self._sim_accumulator += frame_dt
+
+        sim_steps = 0
+        while self._sim_accumulator >= FIXED_STEP and sim_steps < MAX_SIM_STEPS:
+            self._step_simulation()
+            self._sim_accumulator -= FIXED_STEP
+            sim_steps += 1
+
+        if sim_steps >= MAX_SIM_STEPS:
+            # Drop excess time to avoid spiral-of-death on large hitches.
+            self._sim_accumulator = 0.0
 
         pending, self._pending = self._pending, None
         return pending
