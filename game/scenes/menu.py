@@ -70,9 +70,10 @@ class MainMenuScene(Scene):
         self._fade_target: SceneResult | None = None
 
         # Fonts & theme
-        title_font = pygame.font.SysFont(None, 72)
-        item_font = pygame.font.SysFont(None, 42)
-        small_font = pygame.font.SysFont(None, 24)
+        # Use pygame's built-in default font for consistent metrics across OSes.
+        title_font = pygame.font.Font(None, 72)
+        item_font = pygame.font.Font(None, 42)
+        small_font = pygame.font.Font(None, 24)
 
         self._theme = MenuTheme(
             bg_color=self.config.background_color,
@@ -145,8 +146,8 @@ class MainMenuScene(Scene):
         focus = self._selected_item_center(page, sel)
 
         # If mouse is over an item, use hover as focus.
-        if pygame.mouse.get_focused() and page.items:
-            mp = pygame.mouse.get_pos()
+        if page.items and self._input.mouse_pos is not None:
+            mp = self._input.mouse_pos
             self._view.compute_item_rects(page, selected_index=self._input.selected_index, offset=self._menu_offset())
             for r in self._view.item_rects:
                 if r.collidepoint(mp):
@@ -533,8 +534,9 @@ class MainMenuScene(Scene):
 
         # Credits page: click on names for easter eggs
         if self._stack.page.title == "Credits" and event.type == pygame.MOUSEBUTTONDOWN:
-            mx, my = pygame.mouse.get_pos()
-            self._handle_credits_click(mx, my)
+            if "pos" in event.dict:
+                mx, my = event.pos
+                self._handle_credits_click(int(mx), int(my))
 
         # Ensure mouse hit-boxes are computed before input uses them.
         self._view.compute_item_rects(self._stack.page, offset=self._menu_offset())
@@ -844,7 +846,8 @@ class MainMenuScene(Scene):
                 strength=0.0 if self._settings.reduce_motion else 2.2,
             )
             tx = (self._screen_w - title_text.get_width()) // 2
-            ty = max(20, (self._screen_h // 2) - 320)
+            panel_top = self._view.panel_rect.top
+            ty = max(12, panel_top - title_text.get_height() - 24)
 
             shadow = pygame.Surface(title_text.get_size(), pygame.SRCALPHA)
             shadow.blit(title_text, (0, 0))

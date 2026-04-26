@@ -198,18 +198,29 @@ class MenuView:
         self._panel_padding = int(panel_padding)
 
         panel_w = min(panel_width, self._screen_w - 80)
-        panel_h = min(500, self._screen_h - 60)
+        top_safe = max(112, int(self._screen_h * 0.18))
+        bottom_safe = max(24, int(self._screen_h * 0.04))
+        panel_h = max(320, min(500, self._screen_h - top_safe - bottom_safe))
         panel_x = (self._screen_w - panel_w) // 2
-        panel_y = (self._screen_h - panel_h) // 2
+
+        # Keep a dedicated header band for the game title/tagline and derive
+        # row anchors from actual font metrics so layout is consistent.
+        panel_y = top_safe
+        title_h = int(self._theme.title_font.get_height())
+        subtitle_h = int(self._theme.small_font.get_height())
+        title_y = panel_y + panel_padding
+        subtitle_y = title_y + title_h + 8
+        item_start_y = subtitle_y + subtitle_h + 18
+        footer_y = panel_y + panel_h - panel_padding - subtitle_h
 
         self._layout = MenuLayout(
             panel_rect=pygame.Rect(panel_x, panel_y, panel_w, panel_h),
-            title_pos=(panel_x + panel_padding, panel_y + panel_padding),
-            subtitle_pos=(panel_x + panel_padding, panel_y + panel_padding + 48),
-            item_start=(panel_x + panel_padding, panel_y + panel_padding + 92),
-            item_gap=52,
+            title_pos=(panel_x + panel_padding, title_y),
+            subtitle_pos=(panel_x + panel_padding, subtitle_y),
+            item_start=(panel_x + panel_padding, item_start_y),
+            item_gap=10,
             item_value_x=panel_x + panel_w - panel_padding,
-            footer_pos=(panel_x + panel_padding, panel_y + panel_h - panel_padding - 18),
+            footer_pos=(panel_x + panel_padding, footer_y),
         )
 
         self._item_rects: List[pygame.Rect] = []
@@ -270,6 +281,10 @@ class MenuView:
     @property
     def item_rects(self) -> Sequence[pygame.Rect]:
         return self._item_rects
+
+    @property
+    def panel_rect(self) -> pygame.Rect:
+        return self._layout.panel_rect.copy()
 
     def compute_item_rects(
         self,
@@ -502,6 +517,7 @@ class MenuInput:
         self._stack = stack
         self.selected_index = 0
         self._mouse_down = False
+        self.mouse_pos: tuple[int, int] | None = None
 
     def _clamp_index(self) -> None:
         n = len(self._stack.page.items)
@@ -550,6 +566,7 @@ class MenuInput:
 
         elif event.type == pygame.MOUSEMOTION:
             pos = event.pos
+            self.mouse_pos = (int(pos[0]), int(pos[1]))
             for i, r in enumerate(view.item_rects):
                 if r.collidepoint(pos):
                     self.selected_index = i
@@ -557,6 +574,9 @@ class MenuInput:
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             self._mouse_down = True
+            if "pos" in event.dict:
+                pos = event.pos
+                self.mouse_pos = (int(pos[0]), int(pos[1]))
 
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             was_down = self._mouse_down
@@ -564,6 +584,7 @@ class MenuInput:
             if not was_down:
                 return
             pos = event.pos
+            self.mouse_pos = (int(pos[0]), int(pos[1]))
             for i, r in enumerate(view.item_rects):
                 if r.collidepoint(pos) and page.items[i].enabled:
                     self.selected_index = i
